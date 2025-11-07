@@ -50,7 +50,7 @@ jobs:
         id: genpatch
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          MODEL_ID: ${{ env.MODEL_ID }}
+          MODEL_ID: gpt-4o-mini          # more reliable/cheaper, good limits
           PROMPT: ${{ github.event.inputs.prompt }}
           REPO_B64: ${{ steps.pack.outputs.repo_b64 }}
         shell: bash
@@ -63,54 +63,104 @@ jobs:
           fi
 
           python3 - <<'PYCODE'
-          import json, os, sys, urllib.request
+          import json, os, sys, re, base64, urllib.request
+
           api = "https://api.openai.com/v1/chat/completions"
+
+          system = (
+            "You are an expert software engineer. Output ONLY a git unified diff that "
+            "applies cleanly with `git apply --index` against HEAD.\n"
+            "Rules:\n"
+            "• Edit EXISTING files only: app.py and/or templates/index.html\n"
+            "• Use standard headers starting with either:\n"
+            "    diff --git a/<path> b/<path>\n"
+            "  or\n"
+            "    --- a/<path> / +++ b/<path>\n"
+            "• Include @@ hunk headers and context as needed\n"
+            "• No prose, no backticks, no explanations\n"
+            "• End with a trailing newline\n"
+          )
+
+          user_repo = "Repo (tar.gz, base64):\n" + os.environ["REPO_B64"]
+          user_task = (
+            "Task: " + os.environ["PROMPT"] +
+            "\n\nOnly output a unified diff that edits app.py and/or templates/index.html."
+          )
+
           payload = {
             "model": os.environ["MODEL_ID"],
-            "temperature": 0.1,
+            "temperature": 0.0,
             "messages": [
-              {
-                "role": "system",
-                "content": (
-                  "You are an expert software engineer. "
-                  "The user will provide a small repo snapshot (tar.gz, base64). "
-                  "Return ONLY a unified diff patch (git style) that edits app.py and/or templates/index.html. "
-                  "- No prose, no code fences "
-                  "- Patch must apply cleanly with `git apply --index` "
-                  "- Keep changes minimal and atomic"
-                )
-              },
-              {"role": "user", "content": "Repo (tar.gz, base64):\n" + os.environ["REPO_B64"]},
-              {"role": "user", "content": "Task: " + os.environ["PROMPT"] + "\n\nOnly output a unified diff that edits app.py and/or templates/index.html."}
-            ]
+              {"role": "system", "content": system},
+              {"role": "user", "content": user_repo},
+              {"role": "user", "content": user_task},
+            ],
           }
-          data = json.dumps(payload).encode("utf-8")
-          req = urllib.request.Request(api, data=data, headers={
-            "Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
-            "Content-Type": "application/json",
-          })
+
+          req = urllib.request.Request(
+              api,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
+                  "Content-Type": "application/json",
+              },
+          )
           try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-              body = json.loads(r.read().decode("utf-8"))
-            content = body["choices"][0]["message"]["content"].strip()
-            if content.startswith("```"):
-              content = "\n".join(content.splitlines()[1:])
-            if content.endswith("```"):
-              content = "\n".join(content.splitlines()[:-1])
-            open("changes.patch","w").write(content)
-            print(content.splitlines()[0] if content else "(empty)")
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  body = json.loads(r.read().decode("utf-8"))
+              content = body["choices"][0]["message"]["content"].strip()
           except Exception as e:
-            sys.stderr.write(f"OPENAI_ERROR: {e}\n")
-            sys.exit(1)
+              sys.stderr.write(f"OPENAI_ERROR: {e}\n")
+              sys.exit(1)
+
+          # --- sanitize ---
+          if content.startswith("```"):
+              lines = content.splitlines()
+              if lines[-1].strip().startswith("```"):
+                  lines = lines[1:-1]
+              content = "\n".join(lines)
+
+          m = re.search(r'^(diff --git |--- a/)', content, flags=re.M)
+          if m:
+              content = content[m.start():]
+          else:
+              sys.stderr.write("SANITIZE_ERROR: no diff header found in model output\n")
+              sys.exit(1)
+
+          if not content.endswith("\n"):
+              content += "\n"
+
+          for bad in re.findall(r'^(?:diff --git |--- a/|\+\+\+ b/)(.+)$', content, flags=re.M):
+              path = bad.strip().split()[-1]
+              path = path.replace('a/','').replace('b/','')
+              if not (path == "app.py" or path == "templates/index.html"):
+                  sys.stderr.write(f"VALIDATION_ERROR: unexpected path in patch: {path}\n")
+                  sys.exit(1)
+
+          open("changes.patch", "w", encoding="utf-8").write(content)
+          print(content.splitlines()[0] if content else "(empty)")
           PYCODE
 
-          echo "---- Patch preview (first 60 lines) ----"
-          sed -n '1,60p' changes.patch || true
+          echo "---- Patch preview (first 80 lines) ----"
+          nl -ba -w2 -s': ' changes.patch | sed -n '1,80p' || true
 
       - name: Apply patch (stage changes)
         shell: bash
         run: |
           set -euo pipefail
+
+          echo "Verifying patch can be applied…"
+          if ! git apply --check changes.patch 2>apply.err; then
+            echo "::group::changes.patch (head)"
+            nl -ba -w2 -s': ' changes.patch | sed -n '1,160p' || true
+            echo "::endgroup::"
+            echo "::group::git apply --check stderr"
+            sed -n '1,200p' apply.err || true
+            echo "::endgroup::"
+            echo "::error file=changes.patch::Patch did not apply cleanly."
+            exit 1
+          fi
+
           git apply --index changes.patch
           git status --porcelain
           echo "Applied patch."
