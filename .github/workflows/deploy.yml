@@ -22,14 +22,14 @@ jobs:
 
       - name: Deploy files to /opt/nxui
         run: |
-          sudo install -D -m 0755 app.py /opt/nxui/app.py
-          sudo install -D -m 0644 templates/index.html /opt/nxui/templates/index.html
-          sudo chown -R root:root /opt/nxui
+          sudo -n /usr/bin/install -D -m 0755 app.py /opt/nxui/app.py
+          sudo -n /usr/bin/install -D -m 0644 templates/index.html /opt/nxui/templates/index.html
+          sudo -n chown -R root:root /opt/nxui
 
       - name: Restart nxui service
         run: |
-          sudo systemctl restart nxui
-          sudo systemctl is-active --quiet nxui
+          sudo -n /usr/bin/systemctl restart nxui
+          sudo -n /usr/bin/systemctl is-active --quiet nxui
 
       - name: Health check with retry
         run: |
