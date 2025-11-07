@@ -63,28 +63,23 @@ jobs:
           fi
 
           python3 - <<'PYCODE'
-          import json, os, sys, re, base64, urllib.request
+          import json, os, sys, re, urllib.request
 
-          api = "https://api.openai.com/v1/chat/completions"
+          API = "https://api.openai.com/v1/chat/completions"
 
           system = (
               "You are an expert software engineer. Output ONLY a git unified diff that "
               "applies cleanly with `git apply --index` against HEAD.\n"
               "Rules:\n"
               "• Edit EXISTING files only: app.py and/or templates/index.html\n"
-              "• Use standard headers starting with either:\n"
+              "• Use headers exactly like\n"
               "    diff --git a/<path> b/<path>\n"
-              "  or\n"
-              "    --- a/<path> / +++ b/<path>\n"
-              "• Include @@ hunk headers and context as needed\n"
+              "    index <hex>..<hex> 100644 (optional)\n"
+              "    --- a/<path>\n"
+              "    +++ b/<path>\n"
+              "• Include @@ hunk headers and context\n"
               "• No prose, no backticks, no explanations\n"
               "• End with a trailing newline\n"
-          )
-
-          user_repo = "Repo (tar.gz, base64):\n" + os.environ["REPO_B64"]
-          user_task = (
-              "Task: " + os.environ["PROMPT"] +
-              "\n\nOnly output a unified diff that edits app.py and/or templates/index.html."
           )
 
           payload = {
@@ -92,77 +87,117 @@ jobs:
               "temperature": 0.0,
               "messages": [
                   {"role": "system", "content": system},
-                  {"role": "user", "content": user_repo},
-                  {"role": "user", "content": user_task},
+                  {"role": "user", "content": "Repo (tar.gz, base64):\n" + os.environ["REPO_B64"]},
+                  {"role": "user", "content": "Task: " + os.environ["PROMPT"] +
+                                               "\n\nOnly output a unified diff that edits app.py and/or templates/index.html."}
               ],
           }
 
           req = urllib.request.Request(
-              api,
+              API,
               data=json.dumps(payload).encode("utf-8"),
               headers={
                   "Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
                   "Content-Type": "application/json",
               },
           )
+
+          # ---- call model ----
           try:
               with urllib.request.urlopen(req, timeout=120) as r:
                   body = json.loads(r.read().decode("utf-8"))
-              content = body["choices"][0]["message"]["content"].strip()
+              raw = body["choices"][0]["message"]["content"].strip()
           except Exception as e:
               sys.stderr.write(f"OPENAI_ERROR: {e}\n")
               sys.exit(1)
 
-          # --- sanitize ---
-          if content.startswith("```"):
-              lines = content.splitlines()
+          # ---- strip code fences ----
+          if raw.startswith("```"):
+              lines = raw.splitlines()
               if lines[-1].strip().startswith("```"):
                   lines = lines[1:-1]
-              content = "\n".join(lines)
+              else:
+                  lines = lines[1:]
+              raw = "\n".join(lines).strip()
 
-          m = re.search(r'^(diff --git |--- a/)', content, flags=re.M)
+          # keep only from first diff header
+          m = re.search(r'^(?:diff --git |--- a/)', raw, flags=re.M)
           if m:
-              content = content[m.start():]
+              raw = raw[m.start():]
           else:
               sys.stderr.write("SANITIZE_ERROR: no diff header found in model output\n")
               sys.exit(1)
 
-          if not content.endswith("\n"):
-              content += "\n"
+          lines = raw.splitlines()
 
-          for bad in re.findall(r'^(?:diff --git |--- a/|\+\+\+ b/)(.+)$', content, flags=re.M):
-              path = bad.strip().split()[-1]
+          # ---- repair headers if missing ----
+          out = []
+          cur_path = None
+          i = 0
+          while i < len(lines):
+              line = lines[i]
+
+              if line.startswith("diff --git "):
+                  out.append(line)
+                  parts = line.strip().split()
+                  if len(parts) >= 4 and parts[2].startswith("a/") and parts[3].startswith("b/"):
+                      cur_path = parts[2][2:]
+                  else:
+                      cur_path = None
+
+                  j = i + 1
+                  if j < len(lines) and lines[j].startswith("index "):
+                      out.append(lines[j])
+                      j += 1
+
+                  if j < len(lines) and lines[j].startswith("--- a/"):
+                      out.append(lines[j])
+                      j += 1
+                  else:
+                      if not cur_path:
+                          sys.stderr.write("VALIDATION_ERROR: cannot infer path for --- header\n")
+                          sys.exit(1)
+                      out.append(f"--- a/{cur_path}")
+
+                  if j < len(lines) and lines[j].startswith("+++ b/"):
+                      out.append(lines[j])
+                      j += 1
+                  else:
+                      if not cur_path:
+                          sys.stderr.write("VALIDATION_ERROR: cannot infer path for +++ header\n")
+                          sys.exit(1)
+                      out.append(f"+++ b/{cur_path}")
+
+                  i = j
+                  continue
+
+              if line.startswith("@@"):
+                  if not any(x.startswith("--- a/") for x in out[-3:]) or not any(x.startswith("+++ b/") for x in out[-3:]):
+                      sys.stderr.write("VALIDATION_ERROR: hunk appeared without file headers\n")
+                      sys.exit(1)
+                  out.append(line)
+                  i += 1
+                  continue
+
+              out.append(line)
+              i += 1
+
+          patch = "\n".join(out).rstrip("\n") + "\n"
+
+          for m in re.finditer(r'^(?:diff --git a/|--- a/|\+\+\+ b/)(.+)$', patch, flags=re.M):
+              path = m.group(1).split()[-1]
               path = path.replace('a/','').replace('b/','')
-              if not (path == "app.py" or path == "templates/index.html"):
+              if path not in ("app.py", "templates/index.html"):
                   sys.stderr.write(f"VALIDATION_ERROR: unexpected path in patch: {path}\n")
                   sys.exit(1)
 
-          # --- write patch and auto-fix orphan hunks ---
-          open("changes.patch", "w", encoding="utf-8").write(content)
-
-          lines = content.splitlines()
-          fixed = []
-          last_header = None
-          for line in lines:
-              if line.startswith(("diff --git", "--- a/", "+++ b/")):
-                  last_header = line
-              if line.startswith("@@") and not last_header:
-                  sys.stderr.write("AUTO-FIX: orphan hunk found, inserting previous header\n")
-                  if fixed and "diff --git" in fixed[-1]:
-                      pass
-                  elif last_header:
-                      fixed.append(last_header)
-                      fixed.append("--- a/app.py")
-                      fixed.append("+++ b/app.py")
-              fixed.append(line)
-          fixed_content = "\n".join(fixed) + "\n"
-          open("changes.patch", "w", encoding="utf-8").write(fixed_content)
-
-          print(fixed_content.splitlines()[0] if fixed_content else "(empty)")
+          open("changes.patch", "w", encoding="utf-8").write(patch)
+          print(patch.splitlines()[0] if patch else "(empty)")
           PYCODE
 
           echo "---- Patch preview (first 80 lines) ----"
           nl -ba -w2 -s': ' changes.patch | sed -n '1,80p' || true
+
 
       - name: Apply patch (stage changes)
         shell: bash
