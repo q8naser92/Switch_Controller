@@ -1,25 +1,28 @@
+# yamllint disable rule:line-length
+---
 name: AI change (create PR)
 
-on:
+"on":
   workflow_dispatch:
     inputs:
       prompt:
-        description: "Describe the change you want (what/where/why)"
+        description: "Describe the change you want ChatGPT to make"
         required: true
         type: string
 
 permissions:
-  contents: write         # push branch
-  pull-requests: write    # open PR
+  contents: write
+  pull-requests: write
 
 jobs:
   ai_edit:
-    # Use your Pi runner
+    name: AI edit & open PR
+    # Use your self-hosted runner labels
     runs-on: [self-hosted, Linux, ARM64, nxui]
 
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      BASE_BRANCH: main
+      MODEL_ID: gpt-4.1-mini
 
     steps:
       - name: Checkout repo
@@ -27,113 +30,125 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Python sanity check (optional)
+      - name: Verify OpenAI key present
         run: |
-          set -e
-          if [ -f app.py ]; then python3 -m py_compile app.py || true; fi
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "OPENAI_API_KEY is not set in repo secrets." >&2
+            exit 1
+          fi
+
+      - name: Pack current repo for context (tar.gz → base64)
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          tar -czf "$TMP/repo.tgz" .
+          REPO_B64=$(base64 -w 0 "$TMP/repo.tgz")
+          echo "repo_b64=$REPO_B64" >> "$GITHUB_OUTPUT"
 
       - name: Generate unified diff with OpenAI
-        id: gen
+        id: patch
         shell: bash
         run: |
           set -euo pipefail
 
-          # ------------- prepare context -------------
-          SYS="You are an expert developer helping edit a small Python/Flask web app (NXUI).
-          Return a *unified diff patch* only. Do not add extra prose.
-          You may modify only these files if needed:
-            - app.py
-            - templates/index.html
-          Make the smallest safe change that satisfies the user prompt."
+          SYS_MSG=$'You are an expert code editor. \
+          Return ONLY a unified diff (git patch) that can be applied with \
+          `git apply --index`. Keep changes constrained to app.py and/or \
+          templates/index.html unless the user asks otherwise.'
 
-          # Repo as base64 tar.gz (single line)
-          REPO_B64="$(tar -czf - . | base64 | tr -d '\n')"
-          MSG="${{ inputs.prompt }}"
+          USER_MSG=$(cat <<'EOU'
+          Repo (tar.gz, base64) is attached in the next message as REPO_B64.
+          Task: <<PROMPT>>
+          Please output ONLY a unified diff starting with lines like:
+          --- a/path
+          +++ b/path
+          @@ ...
+          EOU
+          )
 
-          # ------------- call OpenAI -------------
-          # We’ll use curl and parse JSON with inline Python (no jq dependency).
-          RESP="$(curl -sS -w '\nHTTP_STATUS:%{http_code}' https://api.openai.com/v1/chat/completions \
-            -H "Authorization: Bearer $OPENAI_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d @- <<EOF
+          USER_MSG=${USER_MSG//<<PROMPT>>/${{ github.event.inputs.prompt }}}
+
+          # Build JSON payload for chat.completions
+          read -r -d '' JSON <<'EOJ' || true
           {
-            "model": "gpt-4o-mini",
+            "model": "'"$MODEL_ID"'",
             "temperature": 0.1,
             "messages": [
-              {"role": "system", "content": ${SYS@Q}},
-              {"role": "user", "content": "Repo (tar.gz, base64): ${REPO_B64}"},
-              {"role": "user", "content": "Task: ${MSG}\n\nOnly output a unified diff that edits app.py and/or templates/index.html."}
+              {"role": "system", "content": "'"$SYS_MSG"'"},
+              {"role": "user", "content": "REPO_B64: ${REPO_B64}"},
+              {"role": "user", "content": "'"$USER_MSG"'"}
             ]
           }
-          EOF
-          )"
+          EOJ
 
-          STATUS="$(printf '%s' "$RESP" | sed -n 's/.*HTTP_STATUS://p')"
-          BODY="$(printf '%s' "$RESP" | sed 's/HTTP_STATUS:.*//')"
+          # Call OpenAI; require jq for parsing
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+          fi
 
-          if [ "$STATUS" != "200" ]; then
-            echo "❌ OpenAI API failed with HTTP $STATUS"
-            echo "$BODY"
+          RESP=$(curl -sS https://api.openai.com/v1/chat/completions \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$JSON")
+
+          # Extract assistant content
+          PATCH=$(echo "$RESP" | jq -r '.choices[0].message.content // empty')
+
+          if [ -z "$PATCH" ] || [ "$PATCH" = "null" ]; then
+            echo "::error::OpenAI returned empty content"
+            echo "$RESP" | sed '1,200!d'  # show some debug
             exit 1
           fi
 
-          # Extract the patch content using Python to avoid jq
-          python3 - "$BODY" > changes.patch <<'PY'
-import sys, json
-raw = sys.argv[1]
-data = json.loads(raw)
-content = data["choices"][0]["message"]["content"] if data.get("choices") else ""
-if not content or not isinstance(content, str):
-    print("", end="")
-else:
-    print(content)
-PY
+          # Remove possible code fences
+          CLEAN=$(printf "%s\n" "$PATCH" | sed -e 's/^```[a-zA-Z-]*$//' -e 's/^```$//')
 
-          if ! [ -s changes.patch ]; then
-            echo "❌ No patch content generated."
+          echo "$CLEAN" > changes.patch
+          echo "wrote changes.patch"
+          sed -n '1,50p' changes.patch || true
+
+      - name: Apply patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s changes.patch ]; then
+            echo "No patch produced."
             exit 1
           fi
 
-          echo "----- Patch (first 60 lines) -----"
-          sed -n '1,60p' changes.patch || true
-          echo "----------------------------------"
+          # Dry run first
+          if ! git apply --check changes.patch; then
+            echo "::error::Patch did not apply cleanly."
+            exit 1
+          fi
 
-          # ------------- apply patch -------------
-          # Fail if patch doesn't apply cleanly
-          git apply --index --whitespace=fix changes.patch
+          # Apply to index so create-pull-request can commit
+          git apply --index changes.patch
+          echo "Patch applied to index."
 
-      - name: Create branch, commit, and push
-        run: |
-          set -euo pipefail
-          BRANCH="ai-edit-$(date +%s)"
-          git config user.name  "nxui-bot"
-          git config user.email "nxui-bot@users.noreply.github.com"
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "AI edit: ${{ github.event.inputs.prompt }}"
+          title: "AI edit: ${{ github.event.inputs.prompt }}"
+          body: |
+            This PR was generated by the **AI change (create PR)** workflow.
 
-          git checkout -b "$BRANCH"
-          git commit -m "AI edit: ${{ inputs.prompt }}"
-          # Push over HTTPS using the ephemeral workflow token
-          git remote set-url origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
-          git push -u origin "$BRANCH"
-          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+            Prompt:
+            ```
+            ${{ github.event.inputs.prompt }}
+            ```
 
-      - name: Open Pull Request
-        id: pr
-        run: |
-          set -euo pipefail
-          title="AI edit: ${{ inputs.prompt }}"
-          body="This PR was generated automatically by the **AI change** workflow.\n\nPrompt:\n> ${{ inputs.prompt }}"
-          api="https://api.github.com/repos/${{ github.repository }}/pulls"
-          resp="$(curl -sS -X POST \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -H "Accept: application/vnd.github+json" \
-            "$api" \
-            -d @- <<EOF
-          {"title": "$title", "head": "${BRANCH}", "base": "${BASE_BRANCH}", "body": "$body"}
-          EOF
-          )"
-          url="$(printf '%s' "$resp" | python3 -c 'import sys, json; print(json.load(sys.stdin).get("html_url",""))')"
-          test -n "$url"
-          echo "url=$url" >> $GITHUB_OUTPUT
-
-      - name: PR link
-        run: echo "✅ Opened PR: ${{ steps.pr.outputs.url }}"
+            Review the diff and merge if correct.
+          branch: ai/edit-${{ github.run_id }}
+          base: main
+          add-paths: |
+            app.py
+            templates/index.html
+          signoff: false
+          labels: |
+            ai-edit
+            automated
