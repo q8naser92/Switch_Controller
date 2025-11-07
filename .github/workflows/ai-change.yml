@@ -1,17 +1,13 @@
-# yamllint disable rule:line-length
----
+---  # yamllint disable rule:line-length
 name: AI change (create PR)
 
-on:
+'on':
   workflow_dispatch:
     inputs:
       prompt:
-        description: >
-          Describe the change you want (be specific).
-          Example: "Add a small badge 'v1' next to the page title
-          in templates/index.html."
+        description: "Describe the change you want (be specific)."
         required: true
-        default: Make a tiny visual tweak to templates/index.html.
+        default: "Make a small visual tweak in templates/index.html."
 
 jobs:
   ai_edit:
@@ -29,89 +25,84 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Sanity – python & curl available
+      - name: Sanity - python and curl present
+        shell: bash
         run: |
+          set -euo pipefail
           python3 --version
           curl --version
 
-      - name: Tar and base64 repo
+      - name: Pack allowed files and base64
         id: pack
         shell: bash
         run: |
-          # Package only files we allow AI to edit
+          set -euo pipefail
           tar czf repo.tar.gz app.py templates/index.html || true
-          REPO_B64="$(base64 -w0 repo.tar.gz 2>/dev/null || base64 < repo.tar.gz)"
-          echo "repo_b64=$REPO_B64" >> "$GITHUB_OUTPUT"
+          if command -v base64 >/dev/null 2>&1; then
+            REPO_B64="$(base64 -w0 repo.tar.gz 2>/dev/null || base64 < repo.tar.gz)"
+          else
+            echo "::error::base64 not found"
+            exit 1
+          fi
+          echo "repo_b64=${REPO_B64}" >> "$GITHUB_OUTPUT"
 
-      - name: Generate unified diff with OpenAI (no sudo)
+      - name: Generate unified diff with OpenAI
         id: genpatch
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           MODEL_ID: ${{ env.MODEL_ID }}
           PROMPT: ${{ github.event.inputs.prompt }}
           REPO_B64: ${{ steps.pack.outputs.repo_b64 }}
-        shell: bash -euo pipefail
+        shell: bash
         run: |
+          set -euo pipefail
+
           if [ -z "${OPENAI_API_KEY:-}" ]; then
             echo "::error::OPENAI_API_KEY secret is missing."
             exit 1
           fi
 
-          read -r -d '' SYS <<'SYS'
-You are an expert software engineer. The user will provide a small repo snapshot (tar.gz, base64).
-Return ONLY a unified diff patch (git style) that edits app.py and/or templates/index.html.
-- No prose, no code fences
-- Patch must apply cleanly with `git apply --index`
-- Keep changes minimal and atomic
-SYS
-
-          read -r -d '' U1 <<'U1'
-Repo (tar.gz, base64):
-U1
-
-          # Call OpenAI with a tiny Python helper (avoids jq)
-          PATCH="$(
-            SYS="$SYS" PROMPT="$PROMPT" U1="$U1" \
-            OPENAI_API_KEY="$OPENAI_API_KEY" MODEL_ID="$MODEL_ID" REPO_B64="$REPO_B64" \
-            python3 - <<'PY'
-import json, os, sys, urllib.request
-api = "https://api.openai.com/v1/chat/completions"
-payload = {
-  "model": os.environ["MODEL_ID"],
-  "temperature": 0.1,
-  "messages": [
-    {"role":"system","content":os.environ["SYS"]},
-    {"role":"user","content": os.environ["U1"] + os.environ["REPO_B64"]},
-    {"role":"user","content":"Task: " + os.environ["PROMPT"] + "\n\nOnly output a unified diff that edits app.py and/or templates/index.html."}
-  ]
-}
-data = json.dumps(payload).encode("utf-8")
-req = urllib.request.Request(
-  api, data=data,
-  headers={"Authorization":"Bearer "+os.environ["OPENAI_API_KEY"],"Content-Type":"application/json"}
-)
-try:
-  with urllib.request.urlopen(req, timeout=120) as r:
-    body = json.loads(r.read().decode("utf-8"))
-  content = body["choices"][0]["message"]["content"].strip()
-  # Strip accidental code fences
-  if content.startswith("```"):
-    content = "\n".join(content.splitlines()[1:])
-  if content.endswith("```"):
-    content = "\n".join(content.splitlines()[:-1])
-  print(content)
-except Exception as e:
-  sys.stderr.write(f"OPENAI_ERROR: {e}\n")
-  sys.exit(1)
-PY
-          )"
-
-          if [ -z "$PATCH" ] or [ "$PATCH" = "null" ]; then
-            echo "::error::OpenAI returned empty content"
-            exit 1
-          fi
-
-          printf "%s\n" "$PATCH" > changes.patch
+          python3 - <<'PYCODE'
+          import json, os, sys, urllib.request
+          api = "https://api.openai.com/v1/chat/completions"
+          payload = {
+            "model": os.environ["MODEL_ID"],
+            "temperature": 0.1,
+            "messages": [
+              {
+                "role": "system",
+                "content": (
+                  "You are an expert software engineer. "
+                  "The user will provide a small repo snapshot (tar.gz, base64). "
+                  "Return ONLY a unified diff patch (git style) that edits app.py and/or templates/index.html. "
+                  "- No prose, no code fences "
+                  "- Patch must apply cleanly with `git apply --index` "
+                  "- Keep changes minimal and atomic"
+                )
+              },
+              {"role": "user", "content": "Repo (tar.gz, base64):\n" + os.environ["REPO_B64"]},
+              {"role": "user", "content": "Task: " + os.environ["PROMPT"] + "\n\nOnly output a unified diff that edits app.py and/or templates/index.html."}
+            ]
+          }
+          data = json.dumps(payload).encode("utf-8")
+          req = urllib.request.Request(api, data=data, headers={
+            "Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
+            "Content-Type": "application/json",
+          })
+          try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+              body = json.loads(r.read().decode("utf-8"))
+            content = body["choices"][0]["message"]["content"].strip()
+            if content.startswith("```"):
+              content = "\n".join(content.splitlines()[1:])
+            if content.endswith("```"):
+              content = "\n".join(content.splitlines()[:-1])
+            open("changes.patch","w").write(content)
+            print(content.splitlines()[0] if content else "(empty)")
+          except Exception as e:
+            sys.stderr.write(f"OPENAI_ERROR: {e}\n")
+            sys.exit(1)
+          PYCODE
 
           echo "---- Patch preview (first 60 lines) ----"
           sed -n '1,60p' changes.patch || true
@@ -119,6 +110,7 @@ PY
       - name: Apply patch (stage changes)
         shell: bash
         run: |
+          set -euo pipefail
           git apply --index changes.patch
           git status --porcelain
           echo "Applied patch."
