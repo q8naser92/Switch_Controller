@@ -149,21 +149,55 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Verifying patch can be applied…"
-          if ! git apply --check changes.patch 2>apply.err; then
-            echo "::group::changes.patch (head)"
-            nl -ba -w2 -s': ' changes.patch | sed -n '1,160p' || true
-            echo "::endgroup::"
+          echo "=== Step 1: Normalize patch ==="
+          if command -v dos2unix >/dev/null 2>&1; then
+            dos2unix -q changes.patch || true
+          else
+            sed -i 's/\r$//' changes.patch || true
+          fi
+          git config core.autocrlf false
+
+          echo "=== Step 2: Show patch summary (first + last 40 lines) ==="
+          echo "::group::changes.patch (head)"
+          nl -ba -w2 -s': ' changes.patch | sed -n '1,40p' || true
+          echo "::endgroup::"
+          echo "::group::changes.patch (tail)"
+          nl -ba -w2 -s': ' changes.patch | tail -n 40 || true
+          echo "::endgroup::"
+
+          echo "=== Step 3: Dry-run check ==="
+          if git apply --check changes.patch 2>apply.err; then
+            echo "Patch validated cleanly with --check ✅"
+            git apply --index changes.patch
+            echo "Patch applied successfully (direct)."
+          else
+            echo "::warning:: --check failed; showing errors and trying 3-way merge"
             echo "::group::git apply --check stderr"
             sed -n '1,200p' apply.err || true
             echo "::endgroup::"
-            echo "::error file=changes.patch::Patch did not apply cleanly."
-            exit 1
+
+            echo "=== Attempting 3-way merge apply ==="
+            if git apply --3way --index changes.patch 2>apply3.err; then
+              echo "Patch applied successfully using 3-way merge ✅"
+            else
+              echo "::group::git apply --3way stderr"
+              sed -n '1,200p' apply3.err || true
+              echo "::endgroup::"
+
+              echo "::group::Current diff (context)"
+              git --no-pager diff --stat || true
+              echo "::endgroup::"
+
+              echo "::error file=changes.patch::Patch did not apply cleanly."
+              exit 1
+            fi
           fi
 
-          git apply --index changes.patch
+          echo "=== Step 4: Git status ==="
           git status --porcelain
-          echo "Applied patch."
+
+          echo "=== Step 5: Show resulting diff (first 80 lines) ==="
+          git --no-pager diff --cached | head -n 80 || true
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
