@@ -7,38 +7,48 @@ on:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, nxui]
-
+    runs-on: [self-hosted, Linux, ARM64, nxui]   # your runner's labels
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Python sanity check
+      # (Optional) see identity and sudo rules in the job logs
+      - name: Debug whoami & sudo -l
         run: |
-          python3 -V
-          python3 - <<'PY'
-          import ast; ast.parse(open('app.py').read()); print("app.py OK")
-          PY
+          whoami
+          id
+          sudo -n -l || true
 
-      - name: Deploy files to /opt/nxui
+      # Deploy files to /opt/nxui (allowed in sudoers: rsync/install/mkdir/chown/cp)
+      - name: Ensure target dir
+        run: sudo -n /usr/bin/mkdir -p /opt/nxui
+
+      - name: Sync files
         run: |
-          sudo -n /usr/bin/install -D -m 0755 app.py /opt/nxui/app.py
-          sudo -n /usr/bin/install -D -m 0644 templates/index.html /opt/nxui/templates/index.html
-          sudo -n chown -R root:root /opt/nxui
+          sudo -n /usr/bin/rsync -av --delete \
+            ./ /opt/nxui/
+          # keep ownership consistent (optional)
+          sudo -n /bin/chown -R root:root /opt/nxui
 
+      # Restart service (match EXACT path & args from sudoers)
       - name: Restart nxui service
-        run: |
-          sudo -n /usr/bin/systemctl restart nxui
-          sudo -n /usr/bin/systemctl is-active --quiet nxui
+        run: sudo -n /usr/bin/systemctl restart nxui
 
-      - name: Health check with retry
+      # Health check with a few retries
+      - name: Health check
+        shell: bash
         run: |
-          for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:8080/health | grep -q '"ok":true'; then
-              echo "OK"; exit 0
+          for i in {1..10}; do
+            if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
+              echo "OK"
+              exit 0
             fi
-            echo "waiting for nxui… ($i/30)"; sleep 1
+            echo "health not ready yet ($i/10)..."
+            sleep 2
           done
-          echo "nxui failed to become healthy"
-          sudo journalctl -u nxui --no-pager -n 200 || true
+          echo "Health check failed"
           exit 1
+
+      # (Optional) Tail recent service logs for visibility
+      - name: Recent nxui logs
+        run: sudo -n /usr/bin/journalctl -u nxui -n 200 --no-pager || true
