@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>NXBT Control Panel</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#151a22; --muted:#98a2b3; --text:#e5e7eb;
+    --accent:#7c3aed; --accent-2:#22c55e; --danger:#ef4444; --active:#0ea5e9; --file:#f59e0b;
+    --btn:#1f2937; --btn-hover:#374151; --ring:0 0 0 2px rgba(124,58,237,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter,"Helvetica Neue",Arial}
+  .wrap{max-width:1200px;margin:20px auto;padding:0 16px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .panel{background:var(--panel);border:1px solid #1f2430;border-radius:12px;padding:12px}
+  .head{display:flex;align-items:center;gap:8px;justify-content:space-between;margin-bottom:8px}
+  .title{font-weight:700}
+  .controls{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{appearance:none;border:0;background:var(--btn);color:var(--text);padding:8px 12px;border-radius:10px;cursor:pointer;transition:transform .05s ease, background .12s ease, box-shadow .12s ease}
+  .btn:hover{background:var(--btn-hover)}
+  .btn:active{transform:translateY(1px)}
+  .btn.on{background:var(--accent-2)}
+  .btn.danger{background:var(--danger)}
+  .btn.small{padding:6px 10px;font-size:12px;border-radius:8px}
+  .btn.flash{box-shadow:var(--ring)}
+  pre.log{height:260px;overflow:auto;background:#0b0e13;border:1px solid #1c2230;border-radius:8px;padding:10px;white-space:pre-wrap;margin:0}
+  .bottom{display:grid;grid-template-columns:360px 1fr;gap:16px;margin-top:16px}
+  .cmds{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .cmds h4{grid-column:1 / -1;margin:8px 0 2px 0;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+  .fileTabs{display:flex;gap:8px;margin-bottom:8px}
+  .tab{padding:6px 10px;border-radius:8px;background:#111522;cursor:pointer;border:1px solid #1e2635;color:var(--muted)}
+  .tab.active{color:#111;border-color:#703aed;background:linear-gradient(180deg,#fbbf24,#f59e0b)}
+  .fileBox{background:#0b0e13;border:1px solid #1c2230;border-radius:10px;padding:10px}
+  .fileRow{display:flex;gap:10px;align-items:center;padding:4px 0;border-bottom:1px dotted #21283a}
+  .ln{width:36px;text-align:right;color:#6b7280}
+  .lt{flex:1}
+  .del{background:#19202d;color:#fca5a5;border:1px solid #3b1a1a}
+  .edit{background:#18282b;color:#93c5fd;border:1px solid #1c3b57}
+  .timelbl{color:var(--muted);font-size:12px}
+  .hlTarget{box-shadow:0 0 0 2px rgba(14,165,233,.35)}
+  input.txt{width:80px;background:#0b0e13;color:#e5e7eb;border:1px solid #1c2230;border-radius:8px;padding:6px 8px}
+  .chip{font-size:11px;padding:3px 6px;border-radius:999px;background:#0f1420;border:1px solid #1c2230;color:#a3a9b6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="grid">
+    <!-- Bluetooth pane -->
+    <div class="panel">
+      <div class="head">
+        <div class="title">Bluetooth (bluetoothctl)</div>
+        <div class="controls">
+          <button class="btn small" id="btStart">Start</button>
+          <button class="btn small" id="btPair">Pair (yes↵)</button>
+          <button class="btn small danger" id="btStop">Stop</button>
+        </div>
+      </div>
+      <pre class="log" id="btLog">(no logs yet)</pre>
+    </div>
+
+    <!-- Program pane -->
+    <div class="panel">
+      <div class="head">
+        <div class="title">Program (nxbt_loop.py)</div>
+        <div class="controls">
+          <button class="btn small" id="pgStart">Start</button>
+          <button class="btn small danger" id="pgStop">Stop (Ctrl-C)</button>
+        </div>
+      </div>
+      <pre class="log" id="pgLog">(no logs yet)</pre>
+    </div>
+  </div>
+
+  <div class="panel bottom">
+    <!-- Commands / adders -->
+    <div>
+      <div class="fileTabs">
+        <div class="tab" id="tabInit" data-file="init">init.txt</div>
+        <div class="tab" id="tabLoop" data-file="loop">loop.txt</div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px">
+        <span class="timelbl">Duration:</span>
+        <input id="dur" class="txt" type="text" value="0.3s">
+        <span class="timelbl">Target file:</span>
+        <button class="btn small" id="toggleFile">init</button>
+        <span class="chip" id="targetHint">Appending → init.txt</span>
+        <button class="btn small" id="btnWait" title="Append a pure wait line like '0.3s'">Add Wait</button>
+      </div>
+
+      <div class="cmds">
+        <h4>Buttons</h4>
+        <button class="btn small cmd" data-c="Y">Y</button>
+        <button class="btn small cmd" data-c="X">X</button>
+        <button class="btn small cmd" data-c="B">B</button>
+        <button class="btn small cmd" data-c="A">A</button>
+
+        <h4>D-Pad</h4>
+        <button class="btn small cmd" data-c="DPAD_UP">DPAD_UP</button>
+        <button class="btn small cmd" data-c="DPAD_DOWN">DPAD_DOWN</button>
+        <button class="btn small cmd" data-c="DPAD_LEFT">DPAD_LEFT</button>
+        <button class="btn small cmd" data-c="DPAD_RIGHT">DPAD_RIGHT</button>
+
+        <h4>Shoulders</h4>
+        <button class="btn small cmd" data-c="L">L</button>
+        <button class="btn small cmd" data-c="ZL">ZL</button>
+        <button class="btn small cmd" data-c="R">R</button>
+        <button class="btn small cmd" data-c="ZR">ZR</button>
+
+        <h4>Meta</h4>
+        <button class="btn small cmd" data-c="PLUS">PLUS</button>
+        <button class="btn small cmd" data-c="MINUS">MINUS</button>
+        <button class="btn small cmd" data-c="HOME">HOME</button>
+        <button class="btn small cmd" data-c="CAPTURE">CAPTURE</button>
+
+        <h4>Left Stick</h4>
+        <button class="btn small cmd" data-c="L_STICK@-100+000">Left ←</button>
+        <button class="btn small cmd" data-c="L_STICK@+100+000">Left →</button>
+        <button class="btn small cmd" data-c="L_STICK@+000+100">Left ↑</button>
+        <button class="btn small cmd" data-c="L_STICK@+000-100">Left ↓</button>
+
+        <h4>Right Stick</h4>
+        <button class="btn small cmd" data-c="R_STICK@-100+000">Right ←</button>
+        <button class="btn small cmd" data-c="R_STICK@+100+000">Right →</button>
+        <button class="btn small cmd" data-c="R_STICK@+000+100">Right ↑</button>
+        <button class="btn small cmd" data-c="R_STICK@+000-100">Right ↓</button>
+      </div>
+    </div>
+
+    <!-- File viewer/editor -->
+    <div>
+      <div class="head" style="margin-bottom:6px">
+        <div class="title">Active file</div>
+        <div class="controls">
+          <button class="btn small" id="refreshFile">Refresh</button>
+        </div>
+      </div>
+      <div class="fileBox" id="fileBox"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+function flash(el){ el.classList.add('flash'); setTimeout(()=>el.classList.remove('flash'), 180); }
+function setLog(el, text){
+  const keep = 100;
+  const lines = (text||'').split('\n');
+  el.textContent = lines.slice(-keep).join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ---------- elements ---------- */
+const btLog = $('#btLog'), pgLog = $('#pgLog'), fileBox = $('#fileBox');
+const tabInit = $('#tabInit'), tabLoop = $('#tabLoop'),
+      toggleBtn = $('#toggleFile'), dur = $('#dur'), targetHint = $('#targetHint'),
+      btnWait = $('#btnWait');
+
+let activeFile = 'init';   // tab shown on right
+let targetFile = 'init';   // file we append to via buttons
+
+function updateTabs(which){
+  activeFile = which;
+  tabInit.classList.toggle('active', which==='init');
+  tabLoop.classList.toggle('active', which==='loop');
+  loadFile();
+}
+function updateTarget(which){
+  targetFile = which;
+  toggleBtn.textContent = which;
+  targetHint.textContent = `Appending → ${which}.txt`;
+  flash(toggleBtn);
+  toggleBtn.classList.add('hlTarget');
+  setTimeout(()=>toggleBtn.classList.remove('hlTarget'), 250);
+}
+
+tabInit.onclick = ()=>updateTabs('init');
+tabLoop.onclick = ()=>updateTabs('loop');
+toggleBtn.onclick = ()=>updateTarget(targetFile==='init'?'loop':'init');
+
+async function jpost(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  return r.json().catch(()=> ({}));
+}
+async function jget(url){
+  const r = await fetch(url);
+  return r.json().catch(()=> ({}));
+}
+
+/* ---------- Bluetooth buttons ---------- */
+$('#btStart').onclick = async (e)=>{ flash(e.target); await jpost('/bluetooth/start'); };
+$('#btStop').onclick  = async (e)=>{ flash(e.target); await jpost('/bluetooth/stop');  };
+$('#btPair').onclick  = async (e)=>{ flash(e.target); await jpost('/bluetooth/pair');  };
+
+/* ---------- Program buttons ---------- */
+$('#pgStart').onclick = async (e)=>{ flash(e.target); await jpost('/program/start'); };
+$('#pgStop').onclick  = async (e)=>{ flash(e.target); await jpost('/program/stop');  };
+
+/* ---------- Logs polling ---------- */
+async function pollLogs(){
+  try{ const b = await jget('/bluetooth/log'); setLog(btLog, b.log); }catch(_){}
+  try{ const p = await jget('/program/log');   setLog(pgLog, p.log); }catch(_){}
+}
+setInterval(pollLogs, 1000);
+pollLogs();
+
+/* ---------- Append commands ---------- */
+function buildLine(cmd, d){
+  const t = (d||'').trim();
+  if (!cmd) return t;                // pure wait line, e.g. "0.3s"
+  return t ? `${cmd} ${t}` : cmd;    // single space between cmd and duration
+}
+
+document.querySelectorAll('.cmd').forEach(btn=>{
+  btn.onclick = async ()=>{
+    flash(btn);
+    const line = buildLine(btn.dataset.c, dur.value);
+    await jpost('/files/append', { which: targetFile, line });
+    loadFile();
+  }
+});
+
+btnWait.onclick = async (e)=>{
+  flash(e.target);
+  const t = (dur.value||'').trim();
+  if (!t) return;
+  await jpost('/files/append', { which: targetFile, line: t });
+  loadFile();
+};
+
+/* ---------- File render / delete / edit ---------- */
+async function loadFile(){
+  const data = await jget(`/files?which=${activeFile}`);
+  if(!data || !data.lines){ fileBox.textContent='(failed to load)'; return; }
+  fileBox.innerHTML = '';
+  data.lines.forEach(row=>{
+    const div = document.createElement('div');
+    div.className = 'fileRow';
+
+    const ln = document.createElement('div');
+    ln.className = 'ln';
+    ln.textContent = row.n;
+
+    const lt = document.createElement('div');
+    lt.className = 'lt';
+    lt.textContent = row.t;
+
+    // Edit button
+    const edit = document.createElement('button');
+    edit.className = 'btn small edit';
+    edit.textContent = 'Edit';
+    edit.onclick = ()=>{
+      // swap into inline editor
+      const original = row.t;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = original;
+      input.style.width = '100%';
+      input.className = 'txt';
+      const save = document.createElement('button');
+      save.className = 'btn small';
+      save.textContent = 'Save';
+      const cancel = document.createElement('button');
+      cancel.className = 'btn small danger';
+      cancel.textContent = 'Cancel';
+
+      const editor = document.createElement('div');
+      editor.style.display = 'flex';
+      editor.style.gap = '8px';
+      editor.style.width = '100%';
+      editor.appendChild(input);
+      editor.appendChild(save);
+      editor.appendChild(cancel);
+
+      // replace text with editor
+      div.replaceChild(editor, lt);
+
+      save.onclick = async ()=>{
+        flash(save);
+        const new_text = input.value.trim();
+        if (!new_text) return;
+        await jpost('/files/modify', { which: activeFile, line_number: row.n, new_text });
+        loadFile();
+      };
+      cancel.onclick = ()=>{ flash(cancel); loadFile(); };
+    };
+
+    // Delete button
+    const del = document.createElement('button');
+    del.className = 'btn small del';
+    del.textContent = 'Delete';
+    del.onclick = async ()=>{
+      flash(del);
+      await jpost('/files/delete', { which: activeFile, line_number: row.n });
+      loadFile();
+    };
+
+    div.appendChild(ln);
+    div.appendChild(lt);
+    div.appendChild(edit);
+    div.appendChild(del);
+    fileBox.appendChild(div);
+  });
+}
+$('#refreshFile').onclick = loadFile;
+
+/* ---------- init ---------- */
+updateTabs('init');
+updateTarget('init');
+loadFile();
+pollLogs();
+</script>
+</body>
+</html>
