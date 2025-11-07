@@ -2,153 +2,135 @@
 ---
 name: AI change (create PR)
 
-"on":
+on:
   workflow_dispatch:
     inputs:
       prompt:
-        description: "Describe the change you want ChatGPT to make"
+        description: >
+          Describe the change you want (be specific).
+          Example: "Add a small badge 'v1' next to the page title
+          in templates/index.html."
         required: true
-        type: string
-
-permissions:
-  contents: write
-  pull-requests: write
+        default: Make a tiny visual tweak to templates/index.html.
 
 jobs:
   ai_edit:
-    name: AI edit & open PR
-    # Use your self-hosted runner labels
-    runs-on: [self-hosted, Linux, ARM64, nxui]
+    runs-on: self-hosted
+    permissions:
+      contents: write
+      pull-requests: write
 
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       MODEL_ID: gpt-4.1-mini
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Verify OpenAI key present
+      - name: Sanity – python & curl available
         run: |
-          if [ -z "${OPENAI_API_KEY:-}" ]; then
-            echo "OPENAI_API_KEY is not set in repo secrets." >&2
-            exit 1
-          fi
+          python3 --version
+          curl --version
 
-      - name: Pack current repo for context (tar.gz → base64)
+      - name: Tar and base64 repo
         id: pack
         shell: bash
         run: |
-          set -euo pipefail
-          TMP=$(mktemp -d)
-          tar -czf "$TMP/repo.tgz" .
-          REPO_B64=$(base64 -w 0 "$TMP/repo.tgz")
+          # Package only files we allow AI to edit
+          tar czf repo.tar.gz app.py templates/index.html || true
+          REPO_B64="$(base64 -w0 repo.tar.gz 2>/dev/null || base64 < repo.tar.gz)"
           echo "repo_b64=$REPO_B64" >> "$GITHUB_OUTPUT"
 
-      - name: Generate unified diff with OpenAI
-        id: patch
-        shell: bash
+      - name: Generate unified diff with OpenAI (no sudo)
+        id: genpatch
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MODEL_ID: ${{ env.MODEL_ID }}
+          PROMPT: ${{ github.event.inputs.prompt }}
+          REPO_B64: ${{ steps.pack.outputs.repo_b64 }}
+        shell: bash -euo pipefail
         run: |
-          set -euo pipefail
-
-          SYS_MSG=$'You are an expert code editor. \
-          Return ONLY a unified diff (git patch) that can be applied with \
-          `git apply --index`. Keep changes constrained to app.py and/or \
-          templates/index.html unless the user asks otherwise.'
-
-          USER_MSG=$(cat <<'EOU'
-          Repo (tar.gz, base64) is attached in the next message as REPO_B64.
-          Task: <<PROMPT>>
-          Please output ONLY a unified diff starting with lines like:
-          --- a/path
-          +++ b/path
-          @@ ...
-          EOU
-          )
-
-          USER_MSG=${USER_MSG//<<PROMPT>>/${{ github.event.inputs.prompt }}}
-
-          # Build JSON payload for chat.completions
-          read -r -d '' JSON <<'EOJ' || true
-          {
-            "model": "'"$MODEL_ID"'",
-            "temperature": 0.1,
-            "messages": [
-              {"role": "system", "content": "'"$SYS_MSG"'"},
-              {"role": "user", "content": "REPO_B64: ${REPO_B64}"},
-              {"role": "user", "content": "'"$USER_MSG"'"}
-            ]
-          }
-          EOJ
-
-          # Call OpenAI; require jq for parsing
-          if ! command -v jq >/dev/null 2>&1; then
-            sudo apt-get update -y
-            sudo apt-get install -y jq
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "::error::OPENAI_API_KEY secret is missing."
+            exit 1
           fi
 
-          RESP=$(curl -sS https://api.openai.com/v1/chat/completions \
-            -H "Authorization: Bearer $OPENAI_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "$JSON")
+          read -r -d '' SYS <<'SYS'
+You are an expert software engineer. The user will provide a small repo snapshot (tar.gz, base64).
+Return ONLY a unified diff patch (git style) that edits app.py and/or templates/index.html.
+- No prose, no code fences
+- Patch must apply cleanly with `git apply --index`
+- Keep changes minimal and atomic
+SYS
 
-          # Extract assistant content
-          PATCH=$(echo "$RESP" | jq -r '.choices[0].message.content // empty')
+          read -r -d '' U1 <<'U1'
+Repo (tar.gz, base64):
+U1
 
-          if [ -z "$PATCH" ] || [ "$PATCH" = "null" ]; then
+          # Call OpenAI with a tiny Python helper (avoids jq)
+          PATCH="$(
+            SYS="$SYS" PROMPT="$PROMPT" U1="$U1" \
+            OPENAI_API_KEY="$OPENAI_API_KEY" MODEL_ID="$MODEL_ID" REPO_B64="$REPO_B64" \
+            python3 - <<'PY'
+import json, os, sys, urllib.request
+api = "https://api.openai.com/v1/chat/completions"
+payload = {
+  "model": os.environ["MODEL_ID"],
+  "temperature": 0.1,
+  "messages": [
+    {"role":"system","content":os.environ["SYS"]},
+    {"role":"user","content": os.environ["U1"] + os.environ["REPO_B64"]},
+    {"role":"user","content":"Task: " + os.environ["PROMPT"] + "\n\nOnly output a unified diff that edits app.py and/or templates/index.html."}
+  ]
+}
+data = json.dumps(payload).encode("utf-8")
+req = urllib.request.Request(
+  api, data=data,
+  headers={"Authorization":"Bearer "+os.environ["OPENAI_API_KEY"],"Content-Type":"application/json"}
+)
+try:
+  with urllib.request.urlopen(req, timeout=120) as r:
+    body = json.loads(r.read().decode("utf-8"))
+  content = body["choices"][0]["message"]["content"].strip()
+  # Strip accidental code fences
+  if content.startswith("```"):
+    content = "\n".join(content.splitlines()[1:])
+  if content.endswith("```"):
+    content = "\n".join(content.splitlines()[:-1])
+  print(content)
+except Exception as e:
+  sys.stderr.write(f"OPENAI_ERROR: {e}\n")
+  sys.exit(1)
+PY
+          )"
+
+          if [ -z "$PATCH" ] or [ "$PATCH" = "null" ]; then
             echo "::error::OpenAI returned empty content"
-            echo "$RESP" | sed '1,200!d'  # show some debug
             exit 1
           fi
 
-          # Remove possible code fences
-          CLEAN=$(printf "%s\n" "$PATCH" | sed -e 's/^```[a-zA-Z-]*$//' -e 's/^```$//')
+          printf "%s\n" "$PATCH" > changes.patch
 
-          echo "$CLEAN" > changes.patch
-          echo "wrote changes.patch"
-          sed -n '1,50p' changes.patch || true
+          echo "---- Patch preview (first 60 lines) ----"
+          sed -n '1,60p' changes.patch || true
 
-      - name: Apply patch
+      - name: Apply patch (stage changes)
         shell: bash
         run: |
-          set -euo pipefail
-          if [ ! -s changes.patch ]; then
-            echo "No patch produced."
-            exit 1
-          fi
-
-          # Dry run first
-          if ! git apply --check changes.patch; then
-            echo "::error::Patch did not apply cleanly."
-            exit 1
-          fi
-
-          # Apply to index so create-pull-request can commit
           git apply --index changes.patch
-          echo "Patch applied to index."
+          git status --porcelain
+          echo "Applied patch."
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "AI edit: ${{ github.event.inputs.prompt }}"
+          branch: ai/edit-${{ github.run_number }}
           title: "AI edit: ${{ github.event.inputs.prompt }}"
-          body: |
-            This PR was generated by the **AI change (create PR)** workflow.
-
-            Prompt:
-            ```
-            ${{ github.event.inputs.prompt }}
-            ```
-
-            Review the diff and merge if correct.
-          branch: ai/edit-${{ github.run_id }}
-          base: main
-          add-paths: |
-            app.py
-            templates/index.html
+          body: "Automatically generated by OpenAI. Please review carefully."
           signoff: false
-          labels: |
-            ai-edit
-            automated
+          committer: "nxui-bot <actions@github.com>"
+          author: "nxui-bot <actions@github.com>"
