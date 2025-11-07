@@ -17,7 +17,7 @@ jobs:
         run: |
           python3 -V
           python3 - <<'PY'
-          import ast,sys; ast.parse(open('app.py').read()); print("app.py OK")
+          import ast; ast.parse(open('app.py').read()); print("app.py OK")
           PY
 
       - name: Deploy files to /opt/nxui
@@ -27,7 +27,18 @@ jobs:
           sudo chown -R root:root /opt/nxui
 
       - name: Restart nxui service
-        run: sudo systemctl restart nxui
+        run: |
+          sudo systemctl restart nxui
+          sudo systemctl is-active --quiet nxui
 
-      - name: Health check
-        run: curl -fsS http://127.0.0.1:8080/health && echo OK
+      - name: Health check with retry
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8080/health | grep -q '"ok":true'; then
+              echo "OK"; exit 0
+            fi
+            echo "waiting for nxui… ($i/30)"; sleep 1
+          done
+          echo "nxui failed to become healthy"
+          sudo journalctl -u nxui --no-pager -n 200 || true
+          exit 1
