@@ -1,0 +1,33 @@
+name: Deploy NXUI to Pi
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, nxui]
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Python sanity check
+        run: |
+          python3 -V
+          python3 - <<'PY'
+          import ast,sys; ast.parse(open('app.py').read()); print("app.py OK")
+          PY
+
+      - name: Deploy files to /opt/nxui
+        run: |
+          sudo install -D -m 0755 app.py /opt/nxui/app.py
+          sudo install -D -m 0644 templates/index.html /opt/nxui/templates/index.html
+          sudo chown -R root:root /opt/nxui
+
+      - name: Restart nxui service
+        run: sudo systemctl restart nxui
+
+      - name: Health check
+        run: curl -fsS http://127.0.0.1:8080/health && echo OK
