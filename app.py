@@ -13,6 +13,7 @@ def _json_nocache(payload, status=200):
 # ---- Paths & settings ----
 INIT_PATH = Path("/root/init.txt")
 LOOP_PATH = Path("/root/loop.txt")
+PRESETS_DIR = Path("/root/presets")
 LOG_DIR   = Path("/var/log/nxui")
 BT_LOG    = LOG_DIR / "btctl.log"
 PROG_LOG  = LOG_DIR / "nxloop.log"
@@ -28,6 +29,7 @@ PROG_SESSION = "nxui_prog"
 
 # Ensure dirs/files exist
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+PRESETS_DIR.mkdir(parents=True, exist_ok=True)
 for p in (INIT_PATH, LOOP_PATH):
     if not p.exists():
         p.write_text("", encoding="utf-8")
@@ -191,6 +193,144 @@ def files_modify():
     lines[ln - 1] = newt
     path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
     return jsonify({"ok": True})
+
+# ---------- Presets API ----------
+@app.get("/presets/list")
+def presets_list():
+    """List all available preset files"""
+    try:
+        presets = []
+        for p in PRESETS_DIR.glob("*.txt"):
+            stat = p.stat()
+            presets.append({
+                "name": p.stem,
+                "filename": p.name,
+                "size": stat.st_size,
+                "modified": stat.st_mtime
+            })
+        presets.sort(key=lambda x: x["modified"], reverse=True)
+        return jsonify({"ok": True, "presets": presets})
+    except Exception:
+        return jsonify({"ok": False, "error": "Failed to list presets"}), 500
+
+@app.post("/presets/save")
+def presets_save():
+    """Save current loop.txt as a preset"""
+    data = request.get_json(force=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "name required"}), 400
+    
+    # Sanitize filename - only allow alphanumeric, dash, underscore
+    safe_name = "".join(c for c in name if c.isalnum() or c in "-_")
+    if not safe_name:
+        return jsonify({"ok": False, "error": "invalid name"}), 400
+    
+    preset_path = PRESETS_DIR / f"{safe_name}.txt"
+    try:
+        # Copy loop.txt to preset
+        content = LOOP_PATH.read_text(encoding="utf-8")
+        preset_path.write_text(content, encoding="utf-8")
+        return jsonify({"ok": True, "filename": preset_path.name})
+    except Exception:
+        return jsonify({"ok": False, "error": "Failed to save preset"}), 500
+
+@app.post("/presets/load")
+def presets_load():
+    """Load a preset into loop.txt"""
+    data = request.get_json(force=True) or {}
+    filename = (data.get("filename") or "").strip()
+    if not filename:
+        return jsonify({"ok": False, "error": "filename required"}), 400
+    
+    # Validate filename - only allow safe characters and .txt extension
+    if not filename.endswith(".txt") or not all(c.isalnum() or c in "-_." for c in filename):
+        return jsonify({"ok": False, "error": "invalid filename"}), 400
+    
+    # Prevent directory traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return jsonify({"ok": False, "error": "invalid filename"}), 400
+    
+    preset_path = PRESETS_DIR / filename
+    if not preset_path.exists() or not preset_path.is_file():
+        return jsonify({"ok": False, "error": "preset not found"}), 404
+    
+    # Ensure it's within presets directory (security check)
+    try:
+        preset_path.resolve().relative_to(PRESETS_DIR.resolve())
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid preset path"}), 403
+    
+    try:
+        content = preset_path.read_text(encoding="utf-8")
+        LOOP_PATH.write_text(content, encoding="utf-8")
+        return jsonify({"ok": True})
+    except Exception:
+        return jsonify({"ok": False, "error": "Failed to load preset"}), 500
+
+@app.get("/presets/view")
+def presets_view():
+    """View contents of a preset file"""
+    filename = request.args.get("filename", "").strip()
+    if not filename:
+        return jsonify({"error": "filename required"}), 400
+    
+    # Validate filename - only allow safe characters and .txt extension
+    if not filename.endswith(".txt") or not all(c.isalnum() or c in "-_." for c in filename):
+        return jsonify({"error": "invalid filename"}), 400
+    
+    # Prevent directory traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return jsonify({"error": "invalid filename"}), 400
+    
+    preset_path = PRESETS_DIR / filename
+    if not preset_path.exists() or not preset_path.is_file():
+        return jsonify({"error": "preset not found"}), 404
+    
+    # Ensure it's within presets directory (security check)
+    try:
+        preset_path.resolve().relative_to(PRESETS_DIR.resolve())
+    except ValueError:
+        return jsonify({"error": "invalid preset path"}), 403
+    
+    try:
+        lines = [{"n": i+1, "t": t} for i, t in enumerate(preset_path.read_text(encoding="utf-8").splitlines())]
+        return jsonify({"path": str(preset_path), "lines": lines})
+    except Exception:
+        return jsonify({"error": "Failed to read preset"}), 500
+
+@app.post("/presets/delete")
+def presets_delete():
+    """Delete a preset file"""
+    data = request.get_json(force=True) or {}
+    filename = (data.get("filename") or "").strip()
+    if not filename:
+        return jsonify({"ok": False, "error": "filename required"}), 400
+    
+    # Validate filename - only allow safe characters and .txt extension
+    if not filename.endswith(".txt") or not all(c.isalnum() or c in "-_." for c in filename):
+        return jsonify({"ok": False, "error": "invalid filename"}), 400
+    
+    # Prevent directory traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return jsonify({"ok": False, "error": "invalid filename"}), 400
+    
+    preset_path = PRESETS_DIR / filename
+    if not preset_path.exists():
+        return jsonify({"ok": False, "error": "preset not found"}), 404
+    
+    # Ensure it's within presets directory (security check)
+    try:
+        preset_path.resolve().relative_to(PRESETS_DIR.resolve())
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid preset path"}), 403
+    
+    try:
+        preset_path.unlink()
+        return jsonify({"ok": True})
+    except Exception:
+        return jsonify({"ok": False, "error": "Failed to delete preset"}), 500
+
 
 @app.get("/health")
 def health():

@@ -81,6 +81,17 @@
         <div class="tab" id="tabLoop" data-file="loop">loop.txt</div>
       </div>
 
+      <!-- Presets section -->
+      <div style="background:#0f1420;border:1px solid #1c2230;border-radius:10px;padding:10px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span class="timelbl" style="font-weight:600">Presets:</span>
+          <input id="presetName" class="txt" type="text" placeholder="preset name" style="width:140px">
+          <button class="btn small" id="btnSavePreset">Save loop.txt</button>
+          <button class="btn small" id="btnRefreshPresets">Refresh</button>
+        </div>
+        <div id="presetsList" style="max-height:120px;overflow:auto"></div>
+      </div>
+
       <div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px">
         <span class="timelbl">Duration:</span>
         <input id="dur" class="txt" type="text" value="0.3s">
@@ -307,10 +318,122 @@ async function loadFile(){
 }
 $('#refreshFile').onclick = loadFile;
 
+/* ---------- Presets ---------- */
+const presetName = $('#presetName'), presetsList = $('#presetsList');
+const btnSavePreset = $('#btnSavePreset'), btnRefreshPresets = $('#btnRefreshPresets');
+
+async function loadPresets(){
+  try{
+    const data = await jget('/presets/list');
+    if(!data.ok || !data.presets){ presetsList.textContent='(failed to load presets)'; return; }
+    
+    if(data.presets.length === 0){
+      presetsList.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:4px">No presets saved yet</div>';
+      return;
+    }
+    
+    presetsList.innerHTML = '';
+    data.presets.forEach(preset=>{
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px dotted #21283a';
+      
+      const name = document.createElement('div');
+      name.style.cssText = 'flex:1;color:var(--text);cursor:pointer';
+      name.textContent = preset.name;
+      name.title = 'Click to view preset contents';
+      name.onclick = async ()=>{
+        // View preset contents in the file viewer
+        try{
+          const viewData = await jget(`/presets/view?filename=${encodeURIComponent(preset.filename)}`);
+          if(!viewData || !viewData.lines){ alert('Failed to load preset'); return; }
+          
+          // Render in file box
+          fileBox.innerHTML = '';
+          const title = document.createElement('div');
+          title.style.cssText = 'color:var(--file);font-weight:600;margin-bottom:8px;padding:4px 0;border-bottom:1px solid #1c2230';
+          title.textContent = `Preset: ${preset.name}`;
+          fileBox.appendChild(title);
+          
+          viewData.lines.forEach(row=>{
+            const div = document.createElement('div');
+            div.className = 'fileRow';
+            
+            const ln = document.createElement('div');
+            ln.className = 'ln';
+            ln.textContent = row.n;
+            
+            const lt = document.createElement('div');
+            lt.className = 'lt';
+            lt.textContent = row.t;
+            
+            div.appendChild(ln);
+            div.appendChild(lt);
+            fileBox.appendChild(div);
+          });
+        }catch(e){ alert('Error viewing preset: '+e); }
+      };
+      
+      const loadBtn = document.createElement('button');
+      loadBtn.className = 'btn small';
+      loadBtn.textContent = 'Load';
+      loadBtn.title = 'Load this preset into loop.txt';
+      loadBtn.onclick = async ()=>{
+        if(!confirm(`Load "${preset.name}" into loop.txt? This will replace the current loop.txt content.`)) return;
+        flash(loadBtn);
+        const result = await jpost('/presets/load', {filename: preset.filename});
+        if(result.ok){
+          alert('Preset loaded successfully!');
+          if(activeFile === 'loop') loadFile(); // refresh if viewing loop
+        } else {
+          alert('Failed to load preset: ' + (result.error||'unknown error'));
+        }
+      };
+      
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn small del';
+      delBtn.textContent = 'Delete';
+      delBtn.onclick = async ()=>{
+        if(!confirm(`Delete preset "${preset.name}"?`)) return;
+        flash(delBtn);
+        const result = await jpost('/presets/delete', {filename: preset.filename});
+        if(result.ok){
+          loadPresets();
+        } else {
+          alert('Failed to delete preset: ' + (result.error||'unknown error'));
+        }
+      };
+      
+      row.appendChild(name);
+      row.appendChild(loadBtn);
+      row.appendChild(delBtn);
+      presetsList.appendChild(row);
+    });
+  }catch(e){
+    presetsList.textContent = '(error loading presets)';
+  }
+}
+
+btnSavePreset.onclick = async (e)=>{
+  const name = (presetName.value||'').trim();
+  if(!name){ alert('Please enter a preset name'); return; }
+  flash(e.target);
+  const result = await jpost('/presets/save', {name});
+  if(result.ok){
+    alert('Preset saved successfully!');
+    presetName.value = '';
+    loadPresets();
+  } else {
+    alert('Failed to save preset: ' + (result.error||'unknown error'));
+  }
+};
+
+btnRefreshPresets.onclick = ()=>{ flash(btnRefreshPresets); loadPresets(); };
+
 /* ---------- init ---------- */
 updateTabs('init');
 updateTarget('init');
 loadFile();
+loadPresets();
 pollLogs();
 </script>
 </body>
