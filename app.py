@@ -385,7 +385,8 @@ def service_status():
             "details": status_out
         })
     except Exception as e:
-        return _json_nocache({"ok": False, "error": str(e)}), 500
+        log_api(f"[service_status] Exception: {str(e)}")
+        return _json_nocache({"ok": False, "error": "Failed to get service status"}), 500
 
 @app.post("/service/restart")
 def service_restart():
@@ -401,7 +402,7 @@ def service_restart():
         return jsonify({"ok": True, "message": "Service restart initiated"})
     except Exception as e:
         log_api(f"[service_restart] Exception: {str(e)}")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": "Failed to restart service"}), 500
 
 @app.get("/service/info")
 def service_info():
@@ -439,7 +440,8 @@ def service_info():
             "ips": ips if ips else ["unable to detect"]
         })
     except Exception as e:
-        return _json_nocache({"ok": False, "error": str(e)}), 500
+        log_api(f"[service_info] Exception: {str(e)}")
+        return _json_nocache({"ok": False, "error": "Failed to get server info"}), 500
 
 @app.get("/routes")
 def routes():
