@@ -177,7 +177,7 @@ def files_append():
             else:
                 lines.insert(line_number - 1, line)
             
-            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
         except ValueError:
             return jsonify({"ok": False, "error": "invalid line_number"}), 400
     else:
