@@ -367,6 +367,82 @@ def health():
         "loop_path": str(LOOP_PATH),
     })
 
+# ---------- Service Management API ----------
+@app.get("/service/status")
+def service_status():
+    """Get the status of the nxui.service"""
+    try:
+        rc, out, err = run(["systemctl", "is-active", "nxui.service"])
+        is_active = (rc == 0 and out.strip() == "active")
+        
+        # Get more detailed status
+        rc2, status_out, _ = run(["systemctl", "status", "nxui.service"])
+        
+        return _json_nocache({
+            "ok": True,
+            "active": is_active,
+            "status": out.strip() if rc == 0 else "unknown",
+            "details": status_out
+        })
+    except Exception as e:
+        log_api(f"[service_status] Exception: {str(e)}")
+        return _json_nocache({"ok": False, "error": "Failed to get service status"}), 500
+
+@app.post("/service/restart")
+def service_restart():
+    """Restart the nxui.service"""
+    try:
+        # This requires sudo permissions configured in sudoers
+        rc, out, err = run(["sudo", "-n", "/usr/bin/systemctl", "restart", "nxui.service"])
+        if rc != 0:
+            log_api(f"[service_restart] rc={rc}\nout={out}\nerr={err}")
+            return jsonify({"ok": False, "error": f"Failed to restart service: {err}"}), 500
+        
+        log_api("[service_restart] OK - service restarted")
+        return jsonify({"ok": True, "message": "Service restart initiated"})
+    except Exception as e:
+        log_api(f"[service_restart] Exception: {str(e)}")
+        return jsonify({"ok": False, "error": "Failed to restart service"}), 500
+
+@app.get("/service/info")
+def service_info():
+    """Get server IP and hostname information"""
+    try:
+        import socket
+        hostname = socket.gethostname()
+        
+        # Get local IP addresses
+        ips = []
+        try:
+            # Get all network interfaces
+            import netifaces
+            for interface in netifaces.interfaces():
+                addrs = netifaces.ifaddresses(interface)
+                if netifaces.AF_INET in addrs:
+                    for addr in addrs[netifaces.AF_INET]:
+                        ip = addr.get('addr')
+                        if ip and not ip.startswith('127.'):
+                            ips.append(ip)
+        except ImportError:
+            # Fallback if netifaces is not available
+            try:
+                # Try to get IP by connecting to external address (doesn't actually send data)
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                ips.append(s.getsockname()[0])
+                s.close()
+            except Exception:
+                pass
+        
+        return _json_nocache({
+            "ok": True,
+            "hostname": hostname,
+            "ips": ips if ips else ["unable to detect"]
+        })
+    except Exception as e:
+        log_api(f"[service_info] Exception: {str(e)}")
+        return _json_nocache({"ok": False, "error": "Failed to get server info"}), 500
+
 @app.get("/routes")
 def routes():
     return jsonify(sorted([rule.rule for rule in app.url_map.iter_rules()]))
