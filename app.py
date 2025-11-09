@@ -154,12 +154,37 @@ def files_append():
     data = request.get_json(force=True)
     which = data.get("which", "init")
     line  = (data.get("line") or "").rstrip("\n")
+    line_number = data.get("line_number")  # Optional: insert at specific line
+    
     if not line:
         return jsonify({"ok": False, "error": "empty"}), 400
     line = " ".join(line.split())
     path = INIT_PATH if which == "init" else LOOP_PATH
-    with path.open("a", encoding="utf-8") as f:
-        f.write(line + "\n")
+    
+    # If line_number is provided, insert at that position
+    if line_number is not None:
+        try:
+            line_number = int(line_number)
+            if line_number < 1:
+                return jsonify({"ok": False, "error": "line_number must be >= 1"}), 400
+            
+            lines = path.read_text(encoding="utf-8").splitlines()
+            
+            # Insert at specific position (1-indexed)
+            # If line_number > len(lines), append at the end
+            if line_number > len(lines):
+                lines.append(line)
+            else:
+                lines.insert(line_number - 1, line)
+            
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except ValueError:
+            return jsonify({"ok": False, "error": "invalid line_number"}), 400
+    else:
+        # Default behavior: append to the end
+        with path.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    
     return jsonify({"ok": True})
 
 @app.post("/files/delete")
