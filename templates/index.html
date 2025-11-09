@@ -100,6 +100,11 @@
         <span class="chip" id="targetHint">Appending → init.txt</span>
         <button class="btn small" id="btnWait" title="Append a pure wait line like '0.3s'">Add Wait</button>
       </div>
+      <div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px">
+        <span class="timelbl">Insert at line:</span>
+        <input id="lineNum" class="txt" type="text" placeholder="(end)" title="Leave empty to append at end, or specify line number to insert at">
+        <span class="chip">Optional: Leave empty to append at end</span>
+      </div>
 
       <div class="cmds">
         <h4>Buttons</h4>
@@ -168,7 +173,7 @@ function setLog(el, text){
 const btLog = $('#btLog'), pgLog = $('#pgLog'), fileBox = $('#fileBox');
 const tabInit = $('#tabInit'), tabLoop = $('#tabLoop'),
       toggleBtn = $('#toggleFile'), dur = $('#dur'), targetHint = $('#targetHint'),
-      btnWait = $('#btnWait');
+      btnWait = $('#btnWait'), lineNum = $('#lineNum');
 
 let activeFile = 'init';   // tab shown on right
 let targetFile = 'init';   // file we append to via buttons
@@ -229,7 +234,10 @@ document.querySelectorAll('.cmd').forEach(btn=>{
   btn.onclick = async ()=>{
     flash(btn);
     const line = buildLine(btn.dataset.c, dur.value);
-    await jpost('/files/append', { which: targetFile, line });
+    const payload = { which: targetFile, line };
+    const ln = (lineNum.value||'').trim();
+    if (ln) payload.line_number = parseInt(ln, 10);
+    await jpost('/files/append', payload);
     loadFile();
   }
 });
@@ -238,7 +246,10 @@ btnWait.onclick = async (e)=>{
   flash(e.target);
   const t = (dur.value||'').trim();
   if (!t) return;
-  await jpost('/files/append', { which: targetFile, line: t });
+  const payload = { which: targetFile, line: t };
+  const ln = (lineNum.value||'').trim();
+  if (ln) payload.line_number = parseInt(ln, 10);
+  await jpost('/files/append', payload);
   loadFile();
 };
 
