@@ -119,9 +119,6 @@
       <div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px">
         <span class="timelbl">Duration:</span>
         <input id="dur" class="txt" type="text" value="0.3s">
-        <span class="timelbl">Target file:</span>
-        <button class="btn small" id="toggleFile">init</button>
-        <span class="chip" id="targetHint">Appending → init.txt</span>
         <button class="btn small" id="btnWait" title="Append a pure wait line like '0.3s'">Add Wait</button>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px">
@@ -196,11 +193,9 @@ function setLog(el, text){
 /* ---------- elements ---------- */
 const btLog = $('#btLog'), pgLog = $('#pgLog'), fileBox = $('#fileBox');
 const tabInit = $('#tabInit'), tabLoop = $('#tabLoop'),
-      toggleBtn = $('#toggleFile'), dur = $('#dur'), targetHint = $('#targetHint'),
-      btnWait = $('#btnWait'), lineNum = $('#lineNum');
+      dur = $('#dur'), btnWait = $('#btnWait'), lineNum = $('#lineNum');
 
-let activeFile = 'init';   // tab shown on right
-let targetFile = 'init';   // file we append to via buttons
+let activeFile = 'loop';   // tab shown on right and target for appending commands
 
 function updateTabs(which){
   activeFile = which;
@@ -208,18 +203,9 @@ function updateTabs(which){
   tabLoop.classList.toggle('active', which==='loop');
   loadFile();
 }
-function updateTarget(which){
-  targetFile = which;
-  toggleBtn.textContent = which;
-  targetHint.textContent = `Appending → ${which}.txt`;
-  flash(toggleBtn);
-  toggleBtn.classList.add('hlTarget');
-  setTimeout(()=>toggleBtn.classList.remove('hlTarget'), 250);
-}
 
 tabInit.onclick = ()=>updateTabs('init');
 tabLoop.onclick = ()=>updateTabs('loop');
-toggleBtn.onclick = ()=>updateTarget(targetFile==='init'?'loop':'init');
 
 async function jpost(url, body){
   const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
@@ -316,7 +302,7 @@ document.querySelectorAll('.cmd').forEach(btn=>{
   btn.onclick = async ()=>{
     flash(btn);
     const line = buildLine(btn.dataset.c, dur.value);
-    const payload = { which: targetFile, line };
+    const payload = { which: activeFile, line };
     const ln = (lineNum.value||'').trim();
     if (ln) payload.line_number = parseInt(ln, 10);
     await jpost('/files/append', payload);
@@ -328,7 +314,7 @@ btnWait.onclick = async (e)=>{
   flash(e.target);
   const t = (dur.value||'').trim();
   if (!t) return;
-  const payload = { which: targetFile, line: t };
+  const payload = { which: activeFile, line: t };
   const ln = (lineNum.value||'').trim();
   if (ln) payload.line_number = parseInt(ln, 10);
   await jpost('/files/append', payload);
@@ -523,8 +509,7 @@ btnSavePreset.onclick = async (e)=>{
 btnRefreshPresets.onclick = ()=>{ flash(btnRefreshPresets); loadPresets(); };
 
 /* ---------- init ---------- */
-updateTabs('init');
-updateTarget('init');
+updateTabs('loop');
 loadFile();
 loadPresets();
 pollLogs();
