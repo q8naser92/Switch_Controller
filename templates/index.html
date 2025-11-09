@@ -46,6 +46,30 @@
 </head>
 <body>
 <div class="wrap">
+  <!-- Service Status Panel -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="head">
+      <div class="title">Service Status</div>
+      <div class="controls">
+        <button class="btn small" id="btnRestartService">Restart nxui.service</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:20px;align-items:center;padding:8px 0">
+      <div>
+        <span class="timelbl">Status:</span>
+        <span id="serviceStatus" class="chip" style="margin-left:8px;font-weight:600">checking...</span>
+      </div>
+      <div>
+        <span class="timelbl">Hostname:</span>
+        <span id="serverHostname" style="margin-left:8px;color:var(--text)">loading...</span>
+      </div>
+      <div>
+        <span class="timelbl">IP:</span>
+        <span id="serverIP" style="margin-left:8px;color:var(--text)">loading...</span>
+      </div>
+    </div>
+  </div>
+
   <div class="grid">
     <!-- Bluetooth pane -->
     <div class="panel">
@@ -214,6 +238,64 @@ $('#btPair').onclick  = async (e)=>{ flash(e.target); await jpost('/bluetooth/pa
 /* ---------- Program buttons ---------- */
 $('#pgStart').onclick = async (e)=>{ flash(e.target); await jpost('/program/start'); };
 $('#pgStop').onclick  = async (e)=>{ flash(e.target); await jpost('/program/stop');  };
+
+/* ---------- Service Status ---------- */
+const serviceStatus = $('#serviceStatus'), serverHostname = $('#serverHostname'), serverIP = $('#serverIP');
+const btnRestartService = $('#btnRestartService');
+
+async function pollServiceStatus(){
+  try{
+    const data = await jget('/service/status');
+    if(data.ok){
+      const status = data.status || 'unknown';
+      serviceStatus.textContent = status;
+      // Update chip color based on status
+      if(status === 'active'){
+        serviceStatus.style.background = 'var(--accent-2)';
+        serviceStatus.style.color = '#111';
+      } else if(status === 'inactive' || status === 'failed'){
+        serviceStatus.style.background = 'var(--danger)';
+        serviceStatus.style.color = '#fff';
+      } else {
+        serviceStatus.style.background = '#f59e0b';
+        serviceStatus.style.color = '#111';
+      }
+    }
+  }catch(_){}
+}
+
+async function loadServerInfo(){
+  try{
+    const data = await jget('/service/info');
+    if(data.ok){
+      serverHostname.textContent = data.hostname || 'unknown';
+      serverIP.textContent = (data.ips && data.ips.length > 0) ? data.ips.join(', ') : 'unknown';
+    }
+  }catch(_){}
+}
+
+btnRestartService.onclick = async (e)=>{
+  if(!confirm('Are you sure you want to restart the nxui.service? This will disconnect you temporarily.')){
+    return;
+  }
+  flash(e.target);
+  try{
+    const result = await jpost('/service/restart');
+    if(result.ok){
+      alert('Service restart initiated. The page will reload in 5 seconds...');
+      setTimeout(()=>{ window.location.reload(); }, 5000);
+    } else {
+      alert('Failed to restart service: ' + (result.error || 'unknown error'));
+    }
+  }catch(err){
+    alert('Error restarting service: ' + err);
+  }
+};
+
+// Poll service status every 5 seconds
+setInterval(pollServiceStatus, 5000);
+pollServiceStatus();
+loadServerInfo();
 
 /* ---------- Logs polling ---------- */
 async function pollLogs(){
