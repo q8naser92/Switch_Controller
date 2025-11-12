@@ -42,6 +42,16 @@
   .hlTarget{box-shadow:0 0 0 2px rgba(14,165,233,.35)}
   input.txt{width:80px;background:#0b0e13;color:#e5e7eb;border:1px solid #1c2230;border-radius:8px;padding:6px 8px}
   .chip{font-size:11px;padding:3px 6px;border-radius:999px;background:#0f1420;border:1px solid #1c2230;color:#a3a9b6}
+  .ctrl-btn{
+    appearance:none;border:2px solid #2d3748;background:#1a202c;color:var(--text);
+    padding:12px;border-radius:12px;cursor:pointer;font-weight:600;font-size:16px;
+    transition:all .15s ease;min-width:60px;min-height:60px;
+  }
+  .ctrl-btn.small{min-width:50px;min-height:50px;padding:8px;font-size:14px}
+  .ctrl-btn:hover{background:#2d3748;border-color:var(--accent);transform:scale(1.05)}
+  .ctrl-btn:active,.ctrl-btn.pressed{background:var(--accent);border-color:var(--accent);transform:scale(0.95)}
+  .ctrl-btn.holding{background:var(--accent-2);border-color:var(--accent-2);animation:pulse 0.5s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.7}}
 </style>
 </head>
 <body>
@@ -90,8 +100,16 @@
         <div class="title">Program (nxbt_loop.py)</div>
         <div class="controls">
           <button class="btn small" id="pgStart">Start</button>
-          <button class="btn small danger" id="pgStop">Stop (Ctrl-C)</button>
+          <button class="btn small" id="pgStatus">Status</button>
+          <button class="btn small danger" id="pgQuit">Quit</button>
         </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+        <span class="timelbl">Mode:</span>
+        <button class="btn small" id="modeManual" data-mode="manual">Manual</button>
+        <button class="btn small" id="modeA" data-mode="a">A</button>
+        <button class="btn small" id="modeB" data-mode="b">B</button>
+        <button class="btn small" id="modeC" data-mode="c">C</button>
       </div>
       <pre class="log" id="pgLog">(no logs yet)</pre>
     </div>
@@ -179,6 +197,118 @@
   </div>
 </div>
 
+<!-- Virtual Controller Overlay (for manual mode) -->
+<div id="controllerOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;justify-content:center;align-items:center">
+  <div style="background:var(--panel);border:2px solid var(--accent);border-radius:20px;padding:30px;position:relative;max-width:800px">
+    <button id="closeOverlay" style="position:absolute;top:15px;right:15px;background:var(--danger);color:white;border:0;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:600">Close</button>
+    
+    <h2 style="margin:0 0 20px 0;color:var(--accent);text-align:center">Virtual Controller - Manual Mode</h2>
+    
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px;text-align:center">
+      <strong>Normal Click:</strong> Single press with 0.3s delay &nbsp;|&nbsp; <strong>Alt+Click:</strong> Continuous press (hold)
+    </div>
+    
+    <!-- Controller layout -->
+    <div style="display:grid;grid-template-columns:200px 1fr 200px;gap:40px;align-items:center">
+      
+      <!-- Left section: D-Pad -->
+      <div style="position:relative">
+        <div style="text-align:center;margin-bottom:10px;color:var(--muted);font-weight:600">D-Pad</div>
+        <div style="display:grid;grid-template-columns:repeat(3,60px);grid-template-rows:repeat(3,60px);gap:2px;margin:0 auto;width:fit-content">
+          <div></div>
+          <button class="ctrl-btn" data-btn="DPAD_UP">↑</button>
+          <div></div>
+          <button class="ctrl-btn" data-btn="DPAD_LEFT">←</button>
+          <div></div>
+          <button class="ctrl-btn" data-btn="DPAD_RIGHT">→</button>
+          <div></div>
+          <button class="ctrl-btn" data-btn="DPAD_DOWN">↓</button>
+          <div></div>
+        </div>
+      </div>
+      
+      <!-- Center section: Meta buttons and sticks -->
+      <div style="text-align:center">
+        <div style="margin-bottom:20px">
+          <button class="ctrl-btn" data-btn="MINUS" style="margin-right:60px">−</button>
+          <button class="ctrl-btn" data-btn="HOME">🏠</button>
+          <button class="ctrl-btn" data-btn="PLUS" style="margin-left:60px">+</button>
+        </div>
+        
+        <div style="margin-bottom:15px">
+          <button class="ctrl-btn" data-btn="CAPTURE">📷</button>
+        </div>
+        
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:25px">
+          <div>
+            <div style="color:var(--muted);font-size:11px;margin-bottom:5px">L Stick</div>
+            <div style="display:grid;grid-template-columns:repeat(3,50px);grid-template-rows:repeat(3,50px);gap:2px">
+              <div></div>
+              <button class="ctrl-btn small" data-btn="L_STICK@+000+100">↑</button>
+              <div></div>
+              <button class="ctrl-btn small" data-btn="L_STICK@-100+000">←</button>
+              <button class="ctrl-btn small" data-btn="L_STICK_PRESS">L3</button>
+              <button class="ctrl-btn small" data-btn="L_STICK@+100+000">→</button>
+              <div></div>
+              <button class="ctrl-btn small" data-btn="L_STICK@+000-100">↓</button>
+              <div></div>
+            </div>
+          </div>
+          
+          <div>
+            <div style="color:var(--muted);font-size:11px;margin-bottom:5px">R Stick</div>
+            <div style="display:grid;grid-template-columns:repeat(3,50px);grid-template-rows:repeat(3,50px);gap:2px">
+              <div></div>
+              <button class="ctrl-btn small" data-btn="R_STICK@+000+100">↑</button>
+              <div></div>
+              <button class="ctrl-btn small" data-btn="R_STICK@-100+000">←</button>
+              <button class="ctrl-btn small" data-btn="R_STICK_PRESS">R3</button>
+              <button class="ctrl-btn small" data-btn="R_STICK@+100+000">→</button>
+              <div></div>
+              <button class="ctrl-btn small" data-btn="R_STICK@+000-100">↓</button>
+              <div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Right section: Action buttons -->
+      <div style="position:relative">
+        <div style="text-align:center;margin-bottom:10px;color:var(--muted);font-weight:600">Buttons</div>
+        <div style="display:grid;grid-template-columns:repeat(3,60px);grid-template-rows:repeat(3,60px);gap:2px;margin:0 auto;width:fit-content">
+          <div></div>
+          <button class="ctrl-btn" data-btn="X" style="background:#5d7aa8">X</button>
+          <div></div>
+          <button class="ctrl-btn" data-btn="Y" style="background:#6aa86d">Y</button>
+          <div></div>
+          <button class="ctrl-btn" data-btn="A" style="background:#a86a6a">A</button>
+          <div></div>
+          <button class="ctrl-btn" data-btn="B" style="background:#a8a86a">B</button>
+          <div></div>
+        </div>
+        
+        <div style="margin-top:25px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <button class="ctrl-btn" data-btn="L">L</button>
+          <button class="ctrl-btn" data-btn="R">R</button>
+          <button class="ctrl-btn" data-btn="ZL">ZL</button>
+          <button class="ctrl-btn" data-btn="ZR">ZR</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Delay-only button -->
+    <div style="text-align:center;margin-top:25px">
+      <button id="delayOnlyBtn" class="ctrl-btn" style="width:200px">Send Delay Only (0.3s)</button>
+    </div>
+    
+    <!-- Active buttons display -->
+    <div style="margin-top:20px;padding:15px;background:#0b0e13;border:1px solid #1c2230;border-radius:10px">
+      <div style="color:var(--muted);font-size:12px;margin-bottom:5px">Active Buttons:</div>
+      <div id="activeButtons" style="min-height:30px;color:var(--text);font-family:monospace;font-size:14px">None</div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -223,7 +353,23 @@ $('#btPair').onclick  = async (e)=>{ flash(e.target); await jpost('/bluetooth/pa
 
 /* ---------- Program buttons ---------- */
 $('#pgStart').onclick = async (e)=>{ flash(e.target); await jpost('/program/start'); };
-$('#pgStop').onclick  = async (e)=>{ flash(e.target); await jpost('/program/stop');  };
+$('#pgStatus').onclick = async (e)=>{ flash(e.target); await jpost('/program/status'); };
+$('#pgQuit').onclick = async (e)=>{ flash(e.target); await jpost('/program/quit'); };
+
+/* ---------- Mode buttons ---------- */
+const modeButtons = [$('#modeManual'), $('#modeA'), $('#modeB'), $('#modeC')];
+modeButtons.forEach(btn => {
+  btn.onclick = async (e) => {
+    flash(e.target);
+    const mode = btn.dataset.mode;
+    await jpost('/program/mode', { mode });
+    
+    // Show controller overlay only for manual mode
+    if (mode === 'manual') {
+      $('#controllerOverlay').style.display = 'flex';
+    }
+  };
+});
 
 /* ---------- Service Status ---------- */
 const serviceStatus = $('#serviceStatus'), serverHostname = $('#serverHostname'), serverIP = $('#serverIP');
@@ -507,6 +653,120 @@ btnSavePreset.onclick = async (e)=>{
 };
 
 btnRefreshPresets.onclick = ()=>{ flash(btnRefreshPresets); loadPresets(); };
+
+/* ---------- Virtual Controller Logic ---------- */
+const controllerOverlay = $('#controllerOverlay');
+const closeOverlay = $('#closeOverlay');
+const activeButtonsDisplay = $('#activeButtons');
+const delayOnlyBtn = $('#delayOnlyBtn');
+
+// State for tracking pressed buttons
+let pressedButtons = new Set();
+let holdIntervals = new Map();
+const DEFAULT_DELAY = '0.3s';
+
+// Close overlay
+closeOverlay.onclick = () => {
+  controllerOverlay.style.display = 'none';
+  // Clear all held buttons when closing
+  pressedButtons.clear();
+  holdIntervals.forEach(interval => clearInterval(interval));
+  holdIntervals.clear();
+  updateActiveButtonsDisplay();
+  document.querySelectorAll('.ctrl-btn').forEach(btn => {
+    btn.classList.remove('holding', 'pressed');
+  });
+};
+
+// Update active buttons display
+function updateActiveButtonsDisplay() {
+  if (pressedButtons.size === 0) {
+    activeButtonsDisplay.textContent = 'None';
+  } else {
+    activeButtonsDisplay.textContent = Array.from(pressedButtons).join(' ');
+  }
+}
+
+// Send command to backend
+async function sendControllerCommand(command) {
+  await jpost('/program/send', { command });
+}
+
+// Handle button press (normal click)
+function handleButtonPress(button) {
+  const btnName = button.dataset.btn;
+  pressedButtons.add(btnName);
+  updateActiveButtonsDisplay();
+  
+  // Build command with all currently pressed buttons
+  const buttons = Array.from(pressedButtons).join(' ');
+  const command = `${buttons} ${DEFAULT_DELAY}`;
+  
+  // Send command
+  sendControllerCommand(command);
+  
+  // Visual feedback
+  button.classList.add('pressed');
+  setTimeout(() => {
+    button.classList.remove('pressed');
+    pressedButtons.delete(btnName);
+    updateActiveButtonsDisplay();
+  }, 100);
+}
+
+// Handle button hold (alt+click)
+function handleButtonHold(button) {
+  const btnName = button.dataset.btn;
+  
+  // If already holding, stop holding
+  if (holdIntervals.has(btnName)) {
+    clearInterval(holdIntervals.get(btnName));
+    holdIntervals.delete(btnName);
+    button.classList.remove('holding');
+    return;
+  }
+  
+  // Start holding
+  button.classList.add('holding');
+  
+  // Send immediately
+  const command = `${btnName} ${DEFAULT_DELAY}`;
+  sendControllerCommand(command);
+  
+  // Repeat every 300ms (matching the 0.3s delay)
+  const interval = setInterval(() => {
+    sendControllerCommand(command);
+  }, 300);
+  
+  holdIntervals.set(btnName, interval);
+}
+
+// Attach event listeners to all controller buttons
+document.querySelectorAll('.ctrl-btn').forEach(btn => {
+  if (btn.id === 'delayOnlyBtn' || btn.id === 'closeOverlay') return; // Skip special buttons
+  
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    
+    if (e.altKey) {
+      // Alt+click = hold/toggle
+      handleButtonHold(btn);
+    } else {
+      // Normal click = single press
+      handleButtonPress(btn);
+    }
+  });
+  
+  // Prevent default context menu on right-click
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+});
+
+// Delay-only button
+delayOnlyBtn.onclick = async (e) => {
+  e.preventDefault();
+  flash(delayOnlyBtn);
+  await sendControllerCommand(DEFAULT_DELAY);
+};
 
 /* ---------- init ---------- */
 updateTabs('loop');

@@ -22,6 +22,7 @@ API_LOG   = LOG_DIR / "api.log"
 # Your NXBT loop runner
 PYENV_PY  = "/root/.pyenv/versions/nxbt-3.11/bin/python"
 NXBT_LOOP = "/root/nxbt_loop.py"
+FIFO_PATH = Path("/tmp/nxbt_cmd")
 
 # screen session names
 BT_SESSION   = "nxui_bt"
@@ -89,6 +90,23 @@ def tail(path: Path, n: int = 300) -> str:
     data = path.read_text(encoding="utf-8", errors="ignore").splitlines()
     return "\n".join(data[-n:])
 
+def send_to_fifo(cmd: str) -> bool:
+    """Send a command to the FIFO pipe"""
+    try:
+        if not FIFO_PATH.exists():
+            log_api(f"[send_to_fifo] FIFO does not exist: {FIFO_PATH}")
+            return False
+        
+        # Write to FIFO with a newline
+        with FIFO_PATH.open("w", encoding="utf-8") as f:
+            f.write(cmd + "\n")
+        
+        log_api(f"[send_to_fifo] Sent: {cmd}")
+        return True
+    except Exception as e:
+        log_api(f"[send_to_fifo] Error: {str(e)}")
+        return False
+
 # ---------- UI ----------
 @app.get("/")
 def index():
@@ -138,6 +156,48 @@ def prog_stop():
 @app.get("/program/log")
 def prog_log():
     return _json_nocache({"log": tail(PROG_LOG, 300)})
+
+@app.post("/program/mode")
+def prog_mode():
+    """Send mode command to FIFO (manual, a, b, c)"""
+    data = request.get_json(force=True) or {}
+    mode = (data.get("mode") or "").strip().lower()
+    
+    # Validate mode
+    valid_modes = ["manual", "a", "b", "c"]
+    if mode not in valid_modes:
+        return jsonify({"ok": False, "error": f"Invalid mode. Must be one of: {', '.join(valid_modes)}"}), 400
+    
+    cmd = f"mode {mode}"
+    ok = send_to_fifo(cmd)
+    return jsonify({"ok": ok, "command": cmd})
+
+@app.post("/program/status")
+def prog_status():
+    """Send status command to FIFO"""
+    ok = send_to_fifo("status")
+    return jsonify({"ok": ok, "command": "status"})
+
+@app.post("/program/quit")
+def prog_quit():
+    """Send quit command to FIFO"""
+    ok = send_to_fifo("quit")
+    return jsonify({"ok": ok, "command": "quit"})
+
+@app.post("/program/send")
+def prog_send():
+    """Send button command to FIFO (for manual mode)"""
+    data = request.get_json(force=True) or {}
+    command = (data.get("command") or "").strip()
+    
+    if not command:
+        return jsonify({"ok": False, "error": "command required"}), 400
+    
+    # Validate command format (basic sanitization)
+    # Commands should be like "A 0.3s" or "A B 0.3s" or "0.3s"
+    cmd = f"send {command}"
+    ok = send_to_fifo(cmd)
+    return jsonify({"ok": ok, "command": cmd})
 
 # ---------- Files API ----------
 @app.get("/files")
