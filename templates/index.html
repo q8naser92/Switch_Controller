@@ -215,7 +215,7 @@
       <h2 style="margin:0 0 20px 0;color:var(--accent);text-align:center">Virtual Controller - Manual Mode</h2>
       
       <div style="font-size:12px;color:var(--muted);margin-bottom:20px;text-align:center">
-        <strong>Normal Click:</strong> Single press with 0.2s delay &nbsp;|&nbsp; <strong>Alt+Click:</strong> Hold (0.6s repeat)
+        <strong>Press &amp; Hold:</strong> Repeats every 0.2s while held &nbsp;|&nbsp; <strong>Alt+Click:</strong> Auto-hold toggle (0.6s repeat)
       </div>
       
       <!-- Controller layout: LEFT - CENTER - RIGHT -->
@@ -684,7 +684,8 @@ const presetNameInput = $('#presetNameInput');
 const saveHistoryPreset = $('#saveHistoryPreset');
 
 // State for tracking held buttons
-let holdIntervals = new Map();
+let holdIntervals = new Map(); // For alt+click auto-hold
+let pressIntervals = new Map(); // For mouse-down manual hold
 let inputHistoryCommands = [];
 const PRESS_DELAY = '0.2s';
 const HOLD_DELAY = '0.6s';
@@ -695,6 +696,8 @@ closeOverlay.onclick = () => {
   // Clear all held buttons when closing
   holdIntervals.forEach(interval => clearInterval(interval));
   holdIntervals.clear();
+  pressIntervals.forEach(interval => clearInterval(interval));
+  pressIntervals.clear();
   document.querySelectorAll('.ctrl-btn').forEach(btn => {
     btn.classList.remove('holding', 'pressed');
   });
@@ -781,31 +784,60 @@ async function sendControllerCommand(command) {
   addToInputHistory(command);
 }
 
-// Handle button press (normal click)
-function handleButtonPress(button) {
+// Handle button press start (mousedown)
+function handleButtonPressStart(button) {
   const btnName = button.dataset.btn;
   
-  // Check if any buttons are being held
-  const hasHeldButtons = holdIntervals.size > 0;
-  
-  // Determine delay: if combining with held buttons, use 0.3s, otherwise use 0.3s
-  const delay = hasHeldButtons ? PRESS_DELAY : PRESS_DELAY;
-  
-  // If there are held buttons, combine them with the pressed button
-  if (hasHeldButtons) {
-    const heldButtons = Array.from(holdIntervals.keys()).join(' ');
-    const command = `${heldButtons} ${btnName} ${delay}`;
-    sendControllerCommand(command);
-  } else {
-    const command = `${btnName} ${delay}`;
-    sendControllerCommand(command);
+  // Don't interfere with alt+click hold
+  if (holdIntervals.has(btnName)) {
+    return;
   }
   
   // Visual feedback
   button.classList.add('pressed');
-  setTimeout(() => {
+  
+  // Check if any buttons are being auto-held (alt+click)
+  const hasHeldButtons = holdIntervals.size > 0;
+  
+  // Send initial command
+  if (hasHeldButtons) {
+    const heldButtons = Array.from(holdIntervals.keys()).join(' ');
+    const command = `${heldButtons} ${btnName} ${PRESS_DELAY}`;
+    sendControllerCommand(command);
+  } else {
+    const command = `${btnName} ${PRESS_DELAY}`;
+    sendControllerCommand(command);
+  }
+  
+  // Start interval to repeat every 200ms while mouse is held down
+  const interval = setInterval(() => {
+    if (hasHeldButtons) {
+      const heldButtons = Array.from(holdIntervals.keys()).join(' ');
+      const command = `${heldButtons} ${btnName} ${PRESS_DELAY}`;
+      sendControllerCommand(command);
+    } else {
+      const command = `${btnName} ${PRESS_DELAY}`;
+      sendControllerCommand(command);
+    }
+  }, 200);
+  
+  pressIntervals.set(btnName, interval);
+}
+
+// Handle button press end (mouseup/mouseleave)
+function handleButtonPressEnd(button) {
+  const btnName = button.dataset.btn;
+  
+  // Stop the press interval if it exists
+  if (pressIntervals.has(btnName)) {
+    clearInterval(pressIntervals.get(btnName));
+    pressIntervals.delete(btnName);
+  }
+  
+  // Remove visual feedback (but not if it's an alt+click hold)
+  if (!holdIntervals.has(btnName)) {
     button.classList.remove('pressed');
-  }, 100);
+  }
 }
 
 // Handle button hold (alt+click)
@@ -843,12 +875,29 @@ document.querySelectorAll('.ctrl-btn').forEach(btn => {
     e.preventDefault();
     
     if (e.altKey) {
-      // Alt+click = hold/toggle
+      // Alt+click = hold/toggle auto-repeat
       handleButtonHold(btn);
-    } else {
-      // Normal click = single press
-      handleButtonPress(btn);
     }
+    // Note: Normal clicks are handled by mousedown/mouseup for press-and-hold behavior
+  });
+  
+  btn.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    
+    // Only handle normal (non-alt) mouse down
+    if (!e.altKey) {
+      handleButtonPressStart(btn);
+    }
+  });
+  
+  btn.addEventListener('mouseup', (e) => {
+    e.preventDefault();
+    handleButtonPressEnd(btn);
+  });
+  
+  btn.addEventListener('mouseleave', (e) => {
+    // Stop sending if mouse leaves while holding
+    handleButtonPressEnd(btn);
   });
   
   // Prevent default context menu on right-click
