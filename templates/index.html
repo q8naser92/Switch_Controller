@@ -107,9 +107,9 @@
       <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
         <span class="timelbl">Mode:</span>
         <button class="btn small" id="modeManual" data-mode="manual">Manual</button>
-        <button class="btn small" id="modeA" data-mode="a">A</button>
-        <button class="btn small" id="modeB" data-mode="b">B</button>
-        <button class="btn small" id="modeC" data-mode="c">C</button>
+        <button class="btn small" id="modeA" data-mode="a">RUN</button>
+        <button class="btn small" id="modeB" data-mode="b">LOOP</button>
+        <button class="btn small" id="modeC" data-mode="c">INIT</button>
       </div>
       <pre class="log" id="pgLog">(no logs yet)</pre>
     </div>
@@ -136,8 +136,8 @@
 
       <div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px">
         <span class="timelbl">Duration:</span>
-        <input id="dur" class="txt" type="text" value="0.3s">
-        <button class="btn small" id="btnWait" title="Append a pure wait line like '0.3s'">Add Wait</button>
+        <input id="dur" class="txt" type="text" value="0.2s">
+        <button class="btn small" id="btnWait" title="Append a pure wait line like '0.2s'">Add Wait</button>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px">
         <span class="timelbl">Insert at line:</span>
@@ -175,12 +175,20 @@
         <button class="btn small cmd" data-c="L_STICK@+100+000">Left →</button>
         <button class="btn small cmd" data-c="L_STICK@+000+100">Left ↑</button>
         <button class="btn small cmd" data-c="L_STICK@+000-100">Left ↓</button>
+        <button class="btn small cmd" data-c="L_STICK@-100+100">Left ↖</button>
+        <button class="btn small cmd" data-c="L_STICK@+100+100">Left ↗</button>
+        <button class="btn small cmd" data-c="L_STICK@-100-100">Left ↙</button>
+        <button class="btn small cmd" data-c="L_STICK@+100-100">Left ↘</button>
 
         <h4>Right Stick</h4>
         <button class="btn small cmd" data-c="R_STICK@-100+000">Right ←</button>
         <button class="btn small cmd" data-c="R_STICK@+100+000">Right →</button>
         <button class="btn small cmd" data-c="R_STICK@+000+100">Right ↑</button>
         <button class="btn small cmd" data-c="R_STICK@+000-100">Right ↓</button>
+        <button class="btn small cmd" data-c="R_STICK@-100+100">Right ↖</button>
+        <button class="btn small cmd" data-c="R_STICK@+100+100">Right ↗</button>
+        <button class="btn small cmd" data-c="R_STICK@-100-100">Right ↙</button>
+        <button class="btn small cmd" data-c="R_STICK@+100-100">Right ↘</button>
       </div>
     </div>
 
@@ -207,7 +215,7 @@
       <h2 style="margin:0 0 20px 0;color:var(--accent);text-align:center">Virtual Controller - Manual Mode</h2>
       
       <div style="font-size:12px;color:var(--muted);margin-bottom:20px;text-align:center">
-        <strong>Normal Click:</strong> Single press with 0.3s delay &nbsp;|&nbsp; <strong>Alt+Click:</strong> Hold (0.6s repeat)
+        <strong>Normal Click:</strong> Single press with 0.2s delay &nbsp;|&nbsp; <strong>Alt+Click:</strong> Hold (0.6s repeat)
       </div>
       
       <!-- Controller layout: LEFT - CENTER - RIGHT -->
@@ -241,15 +249,15 @@
           <div style="display:flex;flex-direction:column;align-items:center">
             <div style="color:var(--muted);font-size:11px;margin-bottom:5px">L Stick</div>
             <div style="display:grid;grid-template-columns:repeat(3,50px);grid-template-rows:repeat(3,50px);gap:2px">
-              <div></div>
+              <button class="ctrl-btn small" data-btn="L_STICK@-100+100">↖</button>
               <button class="ctrl-btn small" data-btn="L_STICK@+000+100">↑</button>
-              <div></div>
+              <button class="ctrl-btn small" data-btn="L_STICK@+100+100">↗</button>
               <button class="ctrl-btn small" data-btn="L_STICK@-100+000">←</button>
               <button class="ctrl-btn small" data-btn="L_STICK_PRESS">L3</button>
               <button class="ctrl-btn small" data-btn="L_STICK@+100+000">→</button>
-              <div></div>
+              <button class="ctrl-btn small" data-btn="L_STICK@-100-100">↙</button>
               <button class="ctrl-btn small" data-btn="L_STICK@+000-100">↓</button>
-              <div></div>
+              <button class="ctrl-btn small" data-btn="L_STICK@+100-100">↘</button>
             </div>
           </div>
         </div>
@@ -288,15 +296,15 @@
           <div style="display:flex;flex-direction:column;align-items:center">
             <div style="color:var(--muted);font-size:11px;margin-bottom:5px">R Stick</div>
             <div style="display:grid;grid-template-columns:repeat(3,50px);grid-template-rows:repeat(3,50px);gap:2px">
-              <div></div>
+              <button class="ctrl-btn small" data-btn="R_STICK@-100+100">↖</button>
               <button class="ctrl-btn small" data-btn="R_STICK@+000+100">↑</button>
-              <div></div>
+              <button class="ctrl-btn small" data-btn="R_STICK@+100+100">↗</button>
               <button class="ctrl-btn small" data-btn="R_STICK@-100+000">←</button>
               <button class="ctrl-btn small" data-btn="R_STICK_PRESS">R3</button>
               <button class="ctrl-btn small" data-btn="R_STICK@+100+000">→</button>
-              <div></div>
+              <button class="ctrl-btn small" data-btn="R_STICK@-100-100">↙</button>
               <button class="ctrl-btn small" data-btn="R_STICK@+000-100">↓</button>
-              <div></div>
+              <button class="ctrl-btn small" data-btn="R_STICK@+100-100">↘</button>
             </div>
           </div>
         </div>
@@ -678,7 +686,7 @@ const saveHistoryPreset = $('#saveHistoryPreset');
 // State for tracking held buttons
 let holdIntervals = new Map();
 let inputHistoryCommands = [];
-const PRESS_DELAY = '0.3s';
+const PRESS_DELAY = '0.2s';
 const HOLD_DELAY = '0.6s';
 
 // Close overlay
