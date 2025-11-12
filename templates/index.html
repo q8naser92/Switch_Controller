@@ -101,6 +101,7 @@
         <div class="controls">
           <button class="btn small" id="pgStart">Start</button>
           <button class="btn small" id="pgStatus">Status</button>
+          <button class="btn small danger" id="pgStop">Stop</button>
           <button class="btn small danger" id="pgQuit">Quit</button>
         </div>
       </div>
@@ -375,6 +376,7 @@ $('#btPair').onclick  = async (e)=>{ flash(e.target); await jpost('/bluetooth/pa
 /* ---------- Program buttons ---------- */
 $('#pgStart').onclick = async (e)=>{ flash(e.target); await jpost('/program/start'); };
 $('#pgStatus').onclick = async (e)=>{ flash(e.target); await jpost('/program/status'); };
+$('#pgStop').onclick = async (e)=>{ flash(e.target); await jpost('/program/stop'); };
 $('#pgQuit').onclick = async (e)=>{ flash(e.target); await jpost('/program/quit'); };
 
 /* ---------- Mode buttons ---------- */
