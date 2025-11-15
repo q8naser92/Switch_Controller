@@ -1,3 +1,7 @@
+# NXBT vendored package build artifacts
+src/nxbt/build/
+src/nxbt/nxbt.egg-info/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -21,3 +25,17 @@ ENV/
 .DS_Store
 Thumbs.db
 test_app.py
+
+# Python envs
+venv/
+env/
+gui/venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Logs
+logs/
+*.log
+var/

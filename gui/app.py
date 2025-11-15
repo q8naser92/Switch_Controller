@@ -11,17 +11,17 @@ def _json_nocache(payload, status=200):
     return resp
 
 # ---- Paths & settings ----
-INIT_PATH = Path("/root/init.txt")
-LOOP_PATH = Path("/root/loop.txt")
-PRESETS_DIR = Path("/root/presets")
+INIT_PATH = Path("/opt/nxbt/config/init.txt")
+LOOP_PATH = Path("/opt/nxbt/config/loop.txt")
+PRESETS_DIR = Path("/opt/nxbt/config/presets")
 LOG_DIR   = Path("/var/log/nxui")
 BT_LOG    = LOG_DIR / "btctl.log"
 PROG_LOG  = LOG_DIR / "nxloop.log"
 API_LOG   = LOG_DIR / "api.log"
 
 # Your NXBT loop runner
-PYENV_PY  = "/root/.pyenv/versions/nxbt-3.11/bin/python"
-NXBT_LOOP = "/root/nxbt_loop.py"
+PYENV_PY  = "/opt/pyenv/versions/nxbt-env/bin/python"
+NXBT_LOOP = "/opt/nxbt/scripts/nxbt_loop.py"
 FIFO_PATH = Path("/tmp/nxbt_cmd")
 
 # screen session names
@@ -38,7 +38,7 @@ for p in (BT_LOG, PROG_LOG, API_LOG):
     if not p.exists():
         p.write_text("", encoding="utf-8")
 
-app = Flask(__name__, template_folder="/opt/nxui/templates", static_folder=None)
+app = Flask(__name__, template_folder="templates", static_folder=None)
 
 # ---------- helpers ----------
 def run(cmd, **kw):
