@@ -1,0 +1,11 @@
+B 0.2s
+0.7s
+B 0.2s
+0.7s
+DPAD_UP 0.15s
+0.7s
+DPAD_LEFT 0.15s
+0.7s
+DPAD_LEFT 0.2s
+0.4s
+A 0.2s
