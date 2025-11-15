@@ -24,6 +24,7 @@ jobs:
         run: |
           sudo -n mkdir -p /opt/nxbt
           sudo -n rsync -av --delete \
+            --exclude 'gui/venv/' \
             ./ /opt/nxbt/
           # keep ownership consistent (optional)
           sudo -n chown -R root:root /opt/nxbt
