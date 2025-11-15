@@ -20,6 +20,8 @@ jobs:
           sudo -n -l || true
 
       # Sync repo contents into /opt/nxbt
+      # This deploys: gui/, scripts/, config/, src/, .github/
+      # The application (gui/app.py) expects files at /opt/nxbt/
       - name: Sync files to /opt/nxbt
         run: |
           sudo -n mkdir -p /opt/nxbt
