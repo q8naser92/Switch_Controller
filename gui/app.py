@@ -163,6 +163,9 @@ def bt_pair():
 
 @app.get("/bluetooth/log")
 def bt_log():
+    # Only show log content if the screen session is running
+    if not screen_exists(BT_SESSION):
+        return _json_nocache({"log": ""})
     raw_log = tail(BT_LOG, 300)
     clean_log = strip_ansi_and_script_metadata(raw_log)
     return _json_nocache({"log": clean_log})
@@ -184,6 +187,9 @@ def prog_stop():
 
 @app.get("/program/log")
 def prog_log():
+    # Only show log content if the screen session is running
+    if not screen_exists(PROG_SESSION):
+        return _json_nocache({"log": ""})
     raw_log = tail(PROG_LOG, 300)
     clean_log = strip_ansi_and_script_metadata(raw_log)
     return _json_nocache({"log": clean_log})
