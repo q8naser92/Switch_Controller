@@ -26,8 +26,8 @@ Switch_Controller/
 │       └── index.html # Main UI page
 ├── config/            # Configuration files for controller sequences
 │   ├── init.txt      # Initialization sequence commands
-│   ├── loop.txt      # Loop sequence commands
-│   └── presets/      # Directory for saved preset files
+│   └── loop.txt      # Loop sequence commands
+│   # (presets/ directory created at runtime in deployment location)
 ├── scripts/           # Utility scripts
 │   └── nxbt_loop.py  # NXBT controller loop engine
 ├── src/              # Vendored dependencies
@@ -83,9 +83,8 @@ Switch_Controller/
 ### Deployment
 - Deployment is automated via GitHub Actions when pushing to `main` branch
 - Self-hosted runner on Raspberry Pi with specific sudoers rules
-- Files are synced to `/opt/nxui` (application code: gui/, scripts/, config/, src/)
-- The application expects config files at `/opt/nxbt/config/` (may be symlinked or separate)
-- The systemd service `nxui` is restarted after deployment
+- Files are synced to `/opt/nxbt/` (all application code: gui/, scripts/, config/, src/)
+- The systemd service `nxbt-gui` is restarted after deployment
 - Health check verifies the service is running after deployment at port 8080
 
 ## Key Considerations

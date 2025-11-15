@@ -7,7 +7,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, Linux, ARM64, nxui]   # your runner's labels
+    runs-on: [self-hosted, Linux, ARM64]   # your runner's labels
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -19,22 +19,21 @@ jobs:
           id
           sudo -n -l || true
 
-      # Deploy files to /opt/nxui (allowed in sudoers: rsync/install/mkdir/chown/cp)
-      # This syncs: gui/, scripts/, config/, src/, .github/
-      # Runtime config is expected at /opt/nxbt/config/ (may be symlinked from /opt/nxui/config/)
-      - name: Ensure target dir
-        run: sudo -n /usr/bin/mkdir -p /opt/nxui
-
-      - name: Sync files
+      # Sync repo contents into /opt/nxbt
+      # This deploys: gui/, scripts/, config/, src/, .github/
+      # The application (gui/app.py) expects files at /opt/nxbt/
+      - name: Sync files to /opt/nxbt
         run: |
-          sudo -n /usr/bin/rsync -av --delete \
-            ./ /opt/nxui/
+          sudo -n mkdir -p /opt/nxbt
+          sudo -n rsync -av --delete \
+            --exclude 'gui/venv/' \
+            ./ /opt/nxbt/
           # keep ownership consistent (optional)
-          sudo -n /bin/chown -R root:root /opt/nxui
+          sudo -n chown -R root:root /opt/nxbt
 
       # Restart service (match EXACT path & args from sudoers)
-      - name: Restart nxui service
-        run: sudo -n /usr/bin/systemctl restart nxui
+      - name: Restart nxbt-gui service
+        run: sudo -n systemctl restart nxbt-gui.service
 
       # Health check with a few retries
       - name: Health check
@@ -53,4 +52,4 @@ jobs:
 
       # (Optional) Tail recent service logs for visibility
       - name: Recent nxui logs
-        run: sudo -n /usr/bin/journalctl -u nxui -n 200 --no-pager || true
+        run: sudo -n /usr/bin/journalctl -u nxbt-gui -n 200 --no-pager || true
