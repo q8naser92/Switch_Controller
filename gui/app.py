@@ -90,6 +90,33 @@ def tail(path: Path, n: int = 300) -> str:
     data = path.read_text(encoding="utf-8", errors="ignore").splitlines()
     return "\n".join(data[-n:])
 
+def strip_ansi_and_script_metadata(text: str) -> str:
+    """Remove ANSI escape sequences and script utility metadata from text"""
+    import re
+    
+    # Remove ANSI escape sequences (CSI sequences like colors, cursor movement, etc.)
+    # Pattern explanation:
+    # \x1b\[ - ESC[ (CSI - Control Sequence Introducer)
+    # [0-9;?]*[a-zA-Z] - Parameters followed by final byte
+    # Also handle OSC sequences: \x1b\][^\x07]*\x07
+    ansi_pattern = re.compile(r'\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07')
+    text = ansi_pattern.sub('', text)
+    
+    # Remove other escape sequences
+    # \x1b followed by single character (like \x1b= or \x1b>)
+    text = re.sub(r'\x1b.', '', text)
+    
+    # Remove script utility metadata (lines starting with "Script started on" or "Script done on")
+    lines = text.splitlines()
+    filtered_lines = []
+    for line in lines:
+        # Skip script metadata lines
+        if line.startswith('Script started on ') or line.startswith('Script done on '):
+            continue
+        filtered_lines.append(line)
+    
+    return '\n'.join(filtered_lines)
+
 def send_to_fifo(cmd: str) -> bool:
     """Send a command to the FIFO pipe"""
     try:
@@ -136,7 +163,9 @@ def bt_pair():
 
 @app.get("/bluetooth/log")
 def bt_log():
-    return _json_nocache({"log": tail(BT_LOG, 300)})
+    raw_log = tail(BT_LOG, 300)
+    clean_log = strip_ansi_and_script_metadata(raw_log)
+    return _json_nocache({"log": clean_log})
 
 # ---------- Program pane ----------
 @app.post("/program/start")
@@ -155,7 +184,9 @@ def prog_stop():
 
 @app.get("/program/log")
 def prog_log():
-    return _json_nocache({"log": tail(PROG_LOG, 300)})
+    raw_log = tail(PROG_LOG, 300)
+    clean_log = strip_ansi_and_script_metadata(raw_log)
+    return _json_nocache({"log": clean_log})
 
 @app.post("/program/mode")
 def prog_mode():
