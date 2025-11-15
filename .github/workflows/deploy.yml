@@ -20,6 +20,8 @@ jobs:
           sudo -n -l || true
 
       # Deploy files to /opt/nxui (allowed in sudoers: rsync/install/mkdir/chown/cp)
+      # This syncs: gui/, scripts/, config/, src/, .github/
+      # Runtime config is expected at /opt/nxbt/config/ (may be symlinked from /opt/nxui/config/)
       - name: Ensure target dir
         run: sudo -n /usr/bin/mkdir -p /opt/nxui
 
