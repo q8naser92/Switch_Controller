@@ -7,7 +7,6 @@ import errno
 import stat
 import nxbt
 
-os.environ["BLUETOOTH_ADAPTER"] = "hci0"
 
 # --- configuration ---
 INIT_FILE = "/opt/nxbt/config/init.txt"
