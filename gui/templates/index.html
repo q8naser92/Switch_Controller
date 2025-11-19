@@ -141,6 +141,18 @@
         <button class="btn small" id="btnWait" title="Append a pure wait line like '0.2s'">Add Wait</button>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px">
+        <span class="timelbl">Action Mode:</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="actionMode" value="hold" id="actionModeHold" checked>
+          <span>Hold</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="actionMode" value="release" id="actionModeRelease">
+          <span>Release</span>
+        </label>
+        <span class="chip">Commands will be written as hold/release (no time)</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px">
         <span class="timelbl">Insert at line:</span>
         <input id="lineNum" class="txt" type="text" placeholder="(end)" title="Leave empty to append at end, or specify line number to insert at">
         <span class="chip">Optional: Leave empty to append at end</span>
@@ -216,7 +228,7 @@
       <h2 style="margin:0 0 20px 0;color:var(--accent);text-align:center">Virtual Controller - Manual Mode</h2>
       
       <div style="font-size:12px;color:var(--muted);margin-bottom:20px;text-align:center">
-        <strong>Press &amp; Hold:</strong> Repeats every 0.2s while held &nbsp;|&nbsp; <strong>Alt+Click:</strong> Auto-hold toggle (0.6s repeat)
+        <strong>Press:</strong> Sends hold on press, release on mouse up &nbsp;|&nbsp; <strong>Alt+Click:</strong> Toggle persistent hold (stays until alt+click again)
       </div>
       
       <!-- Controller layout: LEFT - CENTER - RIGHT -->
@@ -461,10 +473,34 @@ setInterval(pollLogs, 1000);
 pollLogs();
 
 /* ---------- Append commands ---------- */
+function getActionMode() {
+  return document.querySelector('input[name="actionMode"]:checked').value;
+}
+
 function buildLine(cmd, d){
-  const t = (d||'').trim();
-  if (!cmd) return t;                // pure wait line, e.g. "0.3s"
-  return t ? `${cmd} ${t}` : cmd;    // single space between cmd and duration
+  const actionMode = getActionMode();
+  
+  // For stick commands, convert to hold_stick or release_stick format
+  if (cmd.includes('L_STICK@') || cmd.includes('R_STICK@')) {
+    const stick = cmd.split('@')[0]; // "L_STICK" or "R_STICK"
+    const coords = cmd.split('@')[1]; // "+000+100" etc
+    
+    if (actionMode === 'hold') {
+      // Parse coordinates: +000+100 -> x=0, y=100
+      const x = parseInt(coords.substring(0, 4));
+      const y = parseInt(coords.substring(4, 8));
+      return `hold_stick ${stick} ${x} ${y}`;
+    } else {
+      return `release_stick ${stick}`;
+    }
+  }
+  
+  // For button commands
+  if (actionMode === 'hold') {
+    return `hold ${cmd}`;
+  } else {
+    return `release ${cmd}`;
+  }
 }
 
 document.querySelectorAll('.cmd').forEach(btn=>{
@@ -695,8 +731,17 @@ const HOLD_DELAY = '0.6s';
 // Close overlay
 closeOverlay.onclick = () => {
   controllerOverlay.style.display = 'none';
-  // Clear all held buttons when closing
-  holdIntervals.forEach(interval => clearInterval(interval));
+  // Release all held buttons when closing
+  holdIntervals.forEach((_, btnName) => {
+    let releaseCommand;
+    if (btnName.includes('_STICK@')) {
+      const stick = btnName.split('@')[0];
+      releaseCommand = `release_stick ${stick}`;
+    } else {
+      releaseCommand = `release ${btnName}`;
+    }
+    sendControllerCommand(releaseCommand);
+  });
   holdIntervals.clear();
   pressIntervals.forEach(interval => clearInterval(interval));
   pressIntervals.clear();
@@ -790,56 +835,43 @@ async function sendControllerCommand(command) {
 function handleButtonPressStart(button) {
   const btnName = button.dataset.btn;
   
-  // Don't interfere with alt+click hold
-  if (holdIntervals.has(btnName)) {
-    return;
-  }
-  
   // Visual feedback
   button.classList.add('pressed');
   
-  // Check if any buttons are being auto-held (alt+click)
-  const hasHeldButtons = holdIntervals.size > 0;
-  
-  // Send initial command
-  if (hasHeldButtons) {
-    const heldButtons = Array.from(holdIntervals.keys()).join(' ');
-    const command = `${heldButtons} ${btnName} ${PRESS_DELAY}`;
-    sendControllerCommand(command);
+  // Send hold command for this button
+  let holdCommand;
+  if (btnName.includes('_STICK@')) {
+    // Handle stick commands: convert to hold_stick format
+    const stick = btnName.split('@')[0];
+    const coords = btnName.split('@')[1];
+    const x = parseInt(coords.substring(0, 4));
+    const y = parseInt(coords.substring(4, 8));
+    holdCommand = `hold_stick ${stick} ${x} ${y}`;
   } else {
-    const command = `${btnName} ${PRESS_DELAY}`;
-    sendControllerCommand(command);
+    holdCommand = `hold ${btnName}`;
   }
   
-  // Start interval to repeat every 200ms while mouse is held down
-  const interval = setInterval(() => {
-    if (hasHeldButtons) {
-      const heldButtons = Array.from(holdIntervals.keys()).join(' ');
-      const command = `${heldButtons} ${btnName} ${PRESS_DELAY}`;
-      sendControllerCommand(command);
-    } else {
-      const command = `${btnName} ${PRESS_DELAY}`;
-      sendControllerCommand(command);
-    }
-  }, 200);
-  
-  pressIntervals.set(btnName, interval);
+  sendControllerCommand(holdCommand);
 }
 
 // Handle button press end (mouseup/mouseleave)
 function handleButtonPressEnd(button) {
   const btnName = button.dataset.btn;
   
-  // Stop the press interval if it exists
-  if (pressIntervals.has(btnName)) {
-    clearInterval(pressIntervals.get(btnName));
-    pressIntervals.delete(btnName);
+  // Remove visual feedback
+  button.classList.remove('pressed');
+  
+  // Send release command for this button
+  let releaseCommand;
+  if (btnName.includes('_STICK@')) {
+    // Handle stick commands: convert to release_stick format
+    const stick = btnName.split('@')[0];
+    releaseCommand = `release_stick ${stick}`;
+  } else {
+    releaseCommand = `release ${btnName}`;
   }
   
-  // Remove visual feedback (but not if it's an alt+click hold)
-  if (!holdIntervals.has(btnName)) {
-    button.classList.remove('pressed');
-  }
+  sendControllerCommand(releaseCommand);
 }
 
 // Handle button hold (alt+click)
@@ -851,22 +883,39 @@ function handleButtonHold(button) {
     clearInterval(holdIntervals.get(btnName));
     holdIntervals.delete(btnName);
     button.classList.remove('holding');
+    
+    // Send release command
+    let releaseCommand;
+    if (btnName.includes('_STICK@')) {
+      const stick = btnName.split('@')[0];
+      releaseCommand = `release_stick ${stick}`;
+    } else {
+      releaseCommand = `release ${btnName}`;
+    }
+    sendControllerCommand(releaseCommand);
     return;
   }
   
   // Start holding
   button.classList.add('holding');
   
-  // Send immediately with HOLD_DELAY
-  const command = `${btnName} ${HOLD_DELAY}`;
-  sendControllerCommand(command);
+  // Send hold command immediately
+  let holdCommand;
+  if (btnName.includes('_STICK@')) {
+    const stick = btnName.split('@')[0];
+    const coords = btnName.split('@')[1];
+    const x = parseInt(coords.substring(0, 4));
+    const y = parseInt(coords.substring(4, 8));
+    holdCommand = `hold_stick ${stick} ${x} ${y}`;
+  } else {
+    holdCommand = `hold ${btnName}`;
+  }
   
-  // Repeat every 600ms (matching the 0.6s delay)
-  const interval = setInterval(() => {
-    sendControllerCommand(command);
-  }, 600);
+  sendControllerCommand(holdCommand);
   
-  holdIntervals.set(btnName, interval);
+  // Note: No interval needed - the hold state persists in the controller
+  // We just mark it as held in the UI
+  holdIntervals.set(btnName, true); // Use true instead of interval
 }
 
 // Attach event listeners to all controller buttons
@@ -876,8 +925,15 @@ document.querySelectorAll('.ctrl-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     e.preventDefault();
     
+    // If already holding (from Alt+click), any click releases it
+    const btnName = btn.dataset.btn;
+    if (holdIntervals.has(btnName)) {
+      handleButtonHold(btn);
+      return;
+    }
+    
     if (e.altKey) {
-      // Alt+click = hold/toggle auto-repeat
+      // Alt+click = hold until clicked again
       handleButtonHold(btn);
     }
     // Note: Normal clicks are handled by mousedown/mouseup for press-and-hold behavior
@@ -886,20 +942,28 @@ document.querySelectorAll('.ctrl-btn').forEach(btn => {
   btn.addEventListener('mousedown', (e) => {
     e.preventDefault();
     
-    // Only handle normal (non-alt) mouse down
-    if (!e.altKey) {
+    // Only handle normal (non-alt) mouse down if not already in hold state
+    const btnName = btn.dataset.btn;
+    if (!e.altKey && !holdIntervals.has(btnName)) {
       handleButtonPressStart(btn);
     }
   });
   
   btn.addEventListener('mouseup', (e) => {
     e.preventDefault();
-    handleButtonPressEnd(btn);
+    // Only handle mouse up if not in hold state
+    const btnName = btn.dataset.btn;
+    if (!holdIntervals.has(btnName)) {
+      handleButtonPressEnd(btn);
+    }
   });
   
   btn.addEventListener('mouseleave', (e) => {
-    // Stop sending if mouse leaves while holding
-    handleButtonPressEnd(btn);
+    // Stop sending if mouse leaves while holding (but not if in Alt+click hold state)
+    const btnName = btn.dataset.btn;
+    if (!holdIntervals.has(btnName)) {
+      handleButtonPressEnd(btn);
+    }
   });
   
   // Prevent default context menu on right-click

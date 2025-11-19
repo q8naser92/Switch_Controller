@@ -1,11 +1,33 @@
-B 0.2s
+# init_new.txt - Initialization sequence using hold state commands
+# New modal: Button presses are converted to hold/sleep/release pattern
+# Old format: B 0.2s
+# New format: hold B, sleep 0.2s, release B
+
+# Press B twice to get started
+hold B
+0.2s
+release B
 0.7s
-B 0.2s
+hold B
+0.2s
+release B
 0.7s
-DPAD_UP 0.15s
+
+# Navigate menu with D-pad
+hold DPAD_UP
+0.15s
+release DPAD_UP
 0.7s
-DPAD_LEFT 0.15s
+hold DPAD_LEFT
+0.15s
+release DPAD_LEFT
 0.7s
-DPAD_LEFT 0.2s
+hold DPAD_LEFT
+0.2s
+release DPAD_LEFT
 0.4s
-A 0.2s
+
+# Select option
+hold A
+0.2s
+release A

@@ -20,7 +20,7 @@ PROG_LOG  = LOG_DIR / "nxloop.log"
 API_LOG   = LOG_DIR / "api.log"
 
 # Your NXBT loop runner
-PYENV_PY  = "/opt/pyenv/versions/nxbt-env/bin/python"
+PYENV_PY  = "/opt/pyenv/versions/nxbt-dev/bin/python"
 NXBT_LOOP = "/opt/nxbt/scripts/nxbt_loop.py"
 FIFO_PATH = Path("/tmp/nxbt_cmd")
 
@@ -230,11 +230,17 @@ def prog_send():
     if not command:
         return jsonify({"ok": False, "error": "command required"}), 400
     
-    # Validate command format (basic sanitization)
-    # Commands should be like "A 0.3s" or "A B 0.3s" or "0.3s"
-    cmd = f"send {command}"
-    ok = send_to_fifo(cmd)
-    return jsonify({"ok": ok, "command": cmd})
+    # New format supports both hold/release and send commands
+    # Commands can be:
+    # - hold <button>
+    # - release <button>
+    # - hold_stick <stick> <x> <y>
+    # - release_stick <stick>
+    # - send <macro> (legacy support)
+    
+    # Send directly to FIFO
+    ok = send_to_fifo(command)
+    return jsonify({"ok": ok, "command": command})
 
 # ---------- Files API ----------
 @app.get("/files")
