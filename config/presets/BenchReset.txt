@@ -1,18 +1,40 @@
-0.4s
-L_STICK@+000-100 0.2s
-0.4s
-A 0.3s
-0.4s
-A 0.3s
-0.4s
-A 0.3s
-0.4s
-A 0.3s
-0.4s
-A 0.3s
-0.4s
-A 17.0s
-0.4s
-A 0.3s
+0.2s
+hold_stick L_STICK 0 -100
 0.3s
-A 0.3s
+release_stick L_STICK
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.3s
+hold A
+0.3s
+release A
