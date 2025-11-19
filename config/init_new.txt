@@ -1,0 +1,19 @@
+# init_new.txt - Initialization sequence using hold state commands
+# This demonstrates using the hold state API for persistent button holds
+
+# Press B twice to get started
+B 0.2s
+0.7s
+B 0.2s
+0.7s
+
+# Navigate menu with D-pad
+DPAD_UP 0.15s
+0.7s
+DPAD_LEFT 0.15s
+0.7s
+DPAD_LEFT 0.2s
+0.4s
+
+# Select option
+A 0.2s

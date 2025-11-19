@@ -1,0 +1,38 @@
+# loop_new.txt - Loop sequence using hold state commands
+# This demonstrates using the hold state API for continuous movement
+
+# Hold the left stick forward for a period
+hold_stick L_STICK 0 100
+0.5s
+# Release the stick before changing direction
+release_stick L_STICK
+0.2s
+
+# Move left stick up for movement
+hold_stick L_STICK 0 100
+3.0s
+release_stick L_STICK
+0.3s
+
+# Move left stick down
+hold_stick L_STICK 0 -100
+3.0s
+release_stick L_STICK
+0.4s
+
+# Press A multiple times while stick is neutral
+A 0.3s
+0.4s
+A 0.3s
+0.4s
+A 0.3s
+0.4s
+A 0.3s
+0.4s
+A 0.3s
+0.4s
+A 0.3s
+0.4s
+A 0.3s
+0.3s
+A 0.3s

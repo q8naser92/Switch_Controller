@@ -110,6 +110,31 @@ class Sticks():
     LEFT_STICK = "L_STICK"
 
 
+# Button name to packet key mapping for hold state
+_HOLD_BUTTON_KEY_MAP = {
+    "y": "Y",
+    "x": "X",
+    "b": "B",
+    "a": "A",
+    "jcl_sr": "JCL_SR",
+    "jcl_sl": "JCL_SL",
+    "r": "R",
+    "zr": "ZR",
+    "minus": "MINUS",
+    "plus": "PLUS",
+    "home": "HOME",
+    "capture": "CAPTURE",
+    "dpad_down": "DPAD_DOWN",
+    "dpad_up": "DPAD_UP",
+    "dpad_right": "DPAD_RIGHT",
+    "dpad_left": "DPAD_LEFT",
+    "jcr_sr": "JCR_SR",
+    "jcr_sl": "JCR_SL",
+    "l": "L",
+    "zl": "ZL",
+}
+
+
 class NxbtCommands(Enum):
     """An enumeration containing the nxbt message
     commands.
@@ -175,6 +200,9 @@ class Nxbt():
         self._controller_counter = 0
         self._adapters_in_use = {}
         self._controller_adapter_lookup = {}
+
+        # Hold state storage for persistent button/stick holds
+        self._held_inputs = {}
 
         # Disable the BlueZ input plugin so we can use the
         # HID control/interrupt Bluetooth ports
@@ -496,6 +524,161 @@ class Nxbt():
         # Create a copy of the direct input packet in a thread safe manner.
         # NOTE: Using the copy.deepcopy method of copying dicts IS NOT thread safe.
         return json.loads(json.dumps(DIRECT_INPUT_PACKET))
+
+    def _ensure_hold_state(self, controller_index):
+        """Internal helper to initialize hold state for a controller.
+        
+        :param controller_index: The index of the controller
+        :type controller_index: int
+        :return: The hold state dictionary for the controller
+        :rtype: dict
+        """
+        if controller_index not in self._held_inputs:
+            self._held_inputs[controller_index] = {
+                "buttons": set(),
+                "sticks": {}
+            }
+        return self._held_inputs[controller_index]
+
+    def hold_buttons(self, controller_index, buttons):
+        """Mark one or more buttons as 'held down' until released.
+
+        This does NOT itself send input packets; you must call
+        apply_hold_state() + set_controller_input() in your loop.
+        
+        :param controller_index: The index of the controller
+        :type controller_index: int
+        :param buttons: A list of button names to hold
+        :type buttons: list
+        :raises ValueError: If controller does not exist or button name is invalid
+        """
+        if controller_index not in self.manager_state.keys():
+            raise ValueError("Specified controller does not exist")
+
+        state = self._ensure_hold_state(controller_index)
+
+        for name in buttons:
+            key = name.lower()
+            if key not in _HOLD_BUTTON_KEY_MAP:
+                raise ValueError(f"Unsupported button name for hold: {name}")
+            state["buttons"].add(_HOLD_BUTTON_KEY_MAP[key])
+
+    def release_buttons(self, controller_index, buttons=None):
+        """Release one or more held buttons.
+
+        If buttons is None, release ALL held buttons on this controller.
+        
+        :param controller_index: The index of the controller
+        :type controller_index: int
+        :param buttons: A list of button names to release, or None to release all
+        :type buttons: list or None
+        :raises ValueError: If controller does not exist
+        """
+        if controller_index not in self.manager_state.keys():
+            raise ValueError("Specified controller does not exist")
+
+        if controller_index not in self._held_inputs:
+            return
+
+        state = self._held_inputs[controller_index]
+
+        if buttons is None:
+            state["buttons"].clear()
+            return
+
+        for name in buttons:
+            key = name.lower()
+            if key not in _HOLD_BUTTON_KEY_MAP:
+                continue
+            btn_key = _HOLD_BUTTON_KEY_MAP[key]
+            state["buttons"].discard(btn_key)
+
+    def hold_stick(self, controller_index, stick, x, y, pressed=False):
+        """Persistently hold a stick at a given position.
+
+        :param controller_index: The index of the controller
+        :type controller_index: int
+        :param stick: "L_STICK" or "R_STICK"
+        :type stick: str
+        :param x: X-axis position (-100 to 100)
+        :type x: int
+        :param y: Y-axis position (-100 to 100)
+        :type y: int
+        :param pressed: Whether the stick press button is logically held
+        :type pressed: bool
+        :raises ValueError: If controller does not exist or stick name is invalid
+        """
+        if controller_index not in self.manager_state.keys():
+            raise ValueError("Specified controller does not exist")
+
+        stick_name = stick.upper()
+        if stick_name not in ("L_STICK", "R_STICK"):
+            raise ValueError(f"Unsupported stick name: {stick}")
+
+        state = self._ensure_hold_state(controller_index)
+        state["sticks"][stick_name] = {
+            "x": int(x),
+            "y": int(y),
+            "pressed": bool(pressed),
+        }
+
+    def release_stick(self, controller_index, stick=None):
+        """Release a held stick or all sticks for this controller.
+        
+        :param controller_index: The index of the controller
+        :type controller_index: int
+        :param stick: "L_STICK" or "R_STICK", or None to release all sticks
+        :type stick: str or None
+        :raises ValueError: If controller does not exist
+        """
+        if controller_index not in self.manager_state.keys():
+            raise ValueError("Specified controller does not exist")
+
+        if controller_index not in self._held_inputs:
+            return
+
+        state = self._held_inputs[controller_index]
+
+        if stick is None:
+            state["sticks"].clear()
+            return
+
+        stick_name = stick.upper()
+        state["sticks"].pop(stick_name, None)
+
+    def apply_hold_state(self, controller_index, packet):
+        """Apply held inputs to an input packet.
+        
+        Merges any currently held buttons and stick positions into
+        the provided packet. Returns a modified copy of the packet.
+        
+        :param controller_index: The index of the controller
+        :type controller_index: int
+        :param packet: The input packet to modify
+        :type packet: dict
+        :return: The modified input packet with hold state applied
+        :rtype: dict
+        :raises ValueError: If controller does not exist
+        """
+        if controller_index not in self.manager_state.keys():
+            raise ValueError("Specified controller does not exist")
+
+        if controller_index not in self._held_inputs:
+            return packet
+
+        state = self._held_inputs[controller_index]
+
+        # Apply held buttons
+        for btn_key in state["buttons"]:
+            packet[btn_key] = True
+
+        # Apply held sticks
+        for stick_name, stick_state in state["sticks"].items():
+            packet[stick_name]["X_VALUE"] = stick_state["x"]
+            packet[stick_name]["Y_VALUE"] = stick_state["y"]
+            packet[stick_name]["PRESSED"] = stick_state["pressed"]
+
+        return packet
 
     def create_controller(self, controller_type, adapter_path=None,
                           colour_body=None, colour_buttons=None,
