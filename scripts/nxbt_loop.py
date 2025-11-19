@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-NXBT New Loop - Uses the hold state API for persistent button/stick holds.
+NXBT Loop - Uses the hold state API for persistent button/stick holds.
 
-This script manages controller input using the new hold state layer. It continuously
+This script manages controller input using the hold state layer. It continuously
 sends frames at 120Hz with apply_hold_state(), interpreting hold/release commands
 from config files.
 
-Config file format (new modal):
+Config file format (modal):
   hold <button>         # Hold button down
   release <button>      # Release button
   hold_stick <stick> <x> <y>  # Hold stick at position
@@ -21,9 +21,9 @@ Example conversion from old format:
 
 Modes:
   - manual: Wait for commands via stdin or FIFO
-  - mode a: Run init_new.txt once, then loop loop_new.txt repeatedly
-  - mode b: Loop loop_new.txt repeatedly (no init)
-  - mode c: Run init_new.txt once, then return to manual
+  - mode a: Run init.txt once, then loop loop.txt repeatedly
+  - mode b: Loop loop.txt repeatedly (no init)
+  - mode c: Run init.txt once, then return to manual
 
 Manual mode commands:
   - hold <button>: Hold button (e.g., "hold x")
@@ -180,7 +180,7 @@ def exec_config_command(nx, cid, line, tag=""):
 
 
 def main():
-    print("[*] Starting NXBT controller with hold state support (new modal)…")
+    print("[*] Starting NXBT controller with hold state support…")
     nx = nxbt.Nxbt()
     cid = nx.create_controller(nxbt.PRO_CONTROLLER)
     print(f"[+] Controller created (id {cid}), waiting for connection…")
