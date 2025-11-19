@@ -47,7 +47,7 @@ import nxbt
 # --- configuration ---
 INIT_FILE = "/opt/nxbt/config/init.txt"
 LOOP_FILE = "/opt/nxbt/config/loop.txt"
-SLEEP_BETWEEN_LOOPS = 2.0  # seconds
+SLEEP_BETWEEN_LOOPS = 0.5  # seconds
 FIFO_PATH = "/tmp/nxbt_cmd"  # external control pipe
 FRAME_RATE = 120  # Hz for Pro Controller
 
