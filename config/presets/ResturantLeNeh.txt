@@ -1,6 +1,10 @@
-A 0.5s
+hold A
+0.25s
+release A
+0.25s
+hold ZL
+0.35s
+hold A
 0.5s
-ZL 0.5s
-ZL A 0.5s
-ZL 0.5s
-0.5s
+release ZL
+release A
