@@ -1,38 +1,56 @@
 # loop_new.txt - Loop sequence using hold state commands
-# This demonstrates using the hold state API for continuous movement
+# New modal: Stick positions and button presses use hold/sleep/release pattern
+# Old format: L_STICK@+000+100 3.1s
+# New format: hold_stick L_STICK 0 100, sleep 3.1s, release_stick L_STICK
 
-# Hold the left stick forward for a period
-hold_stick L_STICK 0 100
-0.5s
-# Release the stick before changing direction
-release_stick L_STICK
+# Initial wait
 0.2s
 
 # Move left stick up for movement
 hold_stick L_STICK 0 100
-3.0s
+3.1s
 release_stick L_STICK
 0.3s
 
 # Move left stick down
 hold_stick L_STICK 0 -100
-3.0s
+3.2s
 release_stick L_STICK
 0.4s
 
-# Press A multiple times while stick is neutral
-A 0.3s
-0.4s
-A 0.3s
-0.4s
-A 0.3s
-0.4s
-A 0.3s
-0.4s
-A 0.3s
-0.4s
-A 0.3s
-0.4s
-A 0.3s
+# Press A multiple times
+hold A
 0.3s
-A 0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.4s
+hold A
+0.3s
+release A
+0.3s
+hold A
+0.3s
+release A

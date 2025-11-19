@@ -2,24 +2,36 @@
 """
 NXBT New Loop - Uses the hold state API for persistent button/stick holds.
 
-This script manages controller input using the new hold state layer, which allows
-buttons and sticks to be held persistently across frames without needing to
-continuously re-specify them in macros.
+This script manages controller input using the new hold state layer. It continuously
+sends frames at 120Hz with apply_hold_state(), interpreting hold/release commands
+from config files.
+
+Config file format (new modal):
+  hold <button>         # Hold button down
+  release <button>      # Release button
+  hold_stick <stick> <x> <y>  # Hold stick at position
+  release_stick <stick> # Release stick
+  0.5s                  # Sleep for duration (hold state persists during sleep)
+
+Example conversion from old format:
+  Old: B 0.2s
+  New: hold B
+       0.2s
+       release B
 
 Modes:
   - manual: Wait for commands via stdin or FIFO
-  - mode a: Run init.txt once, then loop loop.txt repeatedly
-  - mode b: Loop loop.txt repeatedly (no init)
-  - mode c: Run init.txt once, then return to manual
+  - mode a: Run init_new.txt once, then loop loop_new.txt repeatedly
+  - mode b: Loop loop_new.txt repeatedly (no init)
+  - mode c: Run init_new.txt once, then return to manual
 
-Commands:
-  - hold <buttons>: Start holding buttons (e.g., "hold x a")
-  - release [buttons]: Release buttons (or all if no buttons specified)
-  - hold_stick <stick> <x> <y> [pressed]: Hold stick position (e.g., "hold_stick L_STICK 0 100")
-  - release_stick [stick]: Release stick (or all sticks if not specified)
-  - send <macro>: Send traditional macro command
+Manual mode commands:
+  - hold <button>: Hold button (e.g., "hold x")
+  - release [button]: Release button or all buttons
+  - hold_stick <stick> <x> <y>: Hold stick position
+  - release_stick [stick]: Release stick or all sticks
   - mode <manual|a|b|c>: Change operating mode
-  - status: Show current mode and configuration
+  - status: Show current mode
   - quit: Exit program
 """
 
@@ -43,17 +55,17 @@ HELP_BANNER = """
 Available commands (type directly or echo into /tmp/nxbt_cmd):
 
   mode manual      # stop everything and wait for commands
-  mode a           # run init.txt once, then loop.txt repeatedly
-  mode b           # loop loop.txt repeatedly (no init)
-  mode c           # run init.txt once, then return to manual
+  mode a           # run init_new.txt once, then loop loop_new.txt repeatedly
+  mode b           # loop loop_new.txt repeatedly (no init)
+  mode c           # run init_new.txt once, then return to manual
 
-  hold <buttons>   # example: hold x a b
-  release [btns]   # example: release x (or just: release)
-  hold_stick <stick> <x> <y> [pressed]  # example: hold_stick L_STICK 0 100
-  release_stick [stick]  # example: release_stick L_STICK (or just: release_stick)
+Manual mode commands (new format):
+  hold <button>         # example: hold x
+  release [button]      # example: release x (or just: release)
+  hold_stick <stick> <x> <y>  # example: hold_stick L_STICK 0 100
+  release_stick [stick] # example: release_stick L_STICK (or just: release_stick)
   
-  send <macros>    # example: send A 0.3s, B 0.3s
-  status           # show current mode and line counts
+  status           # show current mode and state
   quit             # exit program
 """.strip()
 
@@ -82,66 +94,93 @@ def ensure_fifo(path):
     return rfd, wfd
 
 
-def exec_command(nx, cid, line, tag=""):
-    """Execute a command from config file (could be hold/release or traditional macro)."""
+def parse_sleep_time(line):
+    """Parse sleep time from format like '0.5s' or '1.2s'."""
+    line = line.strip()
+    if line.endswith('s') and line[:-1].replace('.', '', 1).replace('-', '', 1).isdigit():
+        return float(line[:-1])
+    return None
+
+
+def exec_config_command(nx, cid, line, tag=""):
+    """Execute a command from config file in new modal format.
+    
+    Returns (action, sleep_time):
+        action: 'hold_button', 'release_button', 'hold_stick', 'release_stick', 'sleep', 'unknown'
+        sleep_time: float or None
+    """
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return 'skip', None
+    
+    # Check if it's a sleep command
+    sleep_time = parse_sleep_time(line)
+    if sleep_time is not None:
+        return 'sleep', sleep_time
+    
+    parts = line.split(maxsplit=1)
+    cmd = parts[0].lower()
+    
     try:
-        line = line.strip()
-        if not line or line.startswith("#"):
-            return True
-            
-        parts = line.split(maxsplit=1)
-        cmd = parts[0].lower()
+        # Handle button holds
+        if cmd == "hold":
+            if len(parts) < 2:
+                print(f"[!] Invalid hold command: {line}")
+                return 'unknown', None
+            button = parts[1].strip()
+            print(f"[{tag}] Holding button: {button}")
+            nx.hold_buttons(cid, [button])
+            return 'hold_button', None
         
-        # Handle hold state commands
-        if cmd == "hold" and len(parts) >= 2:
-            buttons = parts[1].split()
-            print(f"[{tag}] Holding buttons: {buttons}")
-            nx.hold_buttons(cid, buttons)
-            return True
-            
+        # Handle button releases
         elif cmd == "release":
-            if len(parts) >= 2:
-                buttons = parts[1].split()
-                print(f"[{tag}] Releasing buttons: {buttons}")
-                nx.release_buttons(cid, buttons)
-            else:
+            if len(parts) < 2:
                 print(f"[{tag}] Releasing all buttons")
                 nx.release_buttons(cid)
-            return True
-            
-        elif cmd == "hold_stick" and len(parts) >= 2:
-            stick_parts = parts[1].split()
-            if len(stick_parts) >= 3:
-                stick = stick_parts[0]
-                x = int(stick_parts[1])
-                y = int(stick_parts[2])
-                pressed = bool(stick_parts[3].lower() == "true") if len(stick_parts) > 3 else False
-                print(f"[{tag}] Holding stick {stick} at ({x}, {y}), pressed={pressed}")
-                nx.hold_stick(cid, stick, x, y, pressed)
-                return True
-            
-        elif cmd == "release_stick":
-            if len(parts) >= 2:
-                stick = parts[1]
-                print(f"[{tag}] Releasing stick: {stick}")
-                nx.release_stick(cid, stick)
             else:
+                button = parts[1].strip()
+                print(f"[{tag}] Releasing button: {button}")
+                nx.release_buttons(cid, [button])
+            return 'release_button', None
+        
+        # Handle stick holds
+        elif cmd == "hold_stick":
+            if len(parts) < 2:
+                print(f"[!] Invalid hold_stick command: {line}")
+                return 'unknown', None
+            stick_parts = parts[1].split()
+            if len(stick_parts) < 3:
+                print(f"[!] Invalid hold_stick command, need: hold_stick <stick> <x> <y>")
+                return 'unknown', None
+            stick = stick_parts[0]
+            x = int(stick_parts[1])
+            y = int(stick_parts[2])
+            print(f"[{tag}] Holding stick {stick} at ({x}, {y})")
+            nx.hold_stick(cid, stick, x, y)
+            return 'hold_stick', None
+        
+        # Handle stick releases
+        elif cmd == "release_stick":
+            if len(parts) < 2:
                 print(f"[{tag}] Releasing all sticks")
                 nx.release_stick(cid)
-            return True
+            else:
+                stick = parts[1].strip()
+                print(f"[{tag}] Releasing stick: {stick}")
+                nx.release_stick(cid, stick)
+            return 'release_stick', None
         
-        # Otherwise, treat as traditional macro
-        print(f"[{tag}] {line}" if tag else f"{line}")
-        nx.macro(cid, line)
-        return True
-        
+        else:
+            print(f"[!] Unknown command: {line}")
+            return 'unknown', None
+            
     except Exception as e:
         print(f"[!] Error executing '{line}': {e}")
-        return False
+        return 'error', None
 
 
 def main():
-    print("[*] Starting NXBT controller with hold state support…")
+    print("[*] Starting NXBT controller with hold state support (new modal)…")
     nx = nxbt.Nxbt()
     cid = nx.create_controller(nxbt.PRO_CONTROLLER)
     print(f"[+] Controller created (id {cid}), waiting for connection…")
@@ -155,16 +194,29 @@ def main():
     loop_cmds = read_commands(LOOP_FILE)
     ran_init = False
     should_quit = False
-    
-    # Track if we're in loop mode to send frames
-    in_loop_mode = False
 
     fifo_rfd, fifo_wfd = ensure_fifo(FIFO_PATH)
     stdin_buf, fifo_buf = "", ""
 
-    def run_line(line):
-        """Process one command line."""
-        nonlocal mode, ran_init, should_quit, in_loop_mode
+    # Frame timing for continuous 120Hz sending
+    frame_time = 1.0 / FRAME_RATE
+    last_frame = time.perf_counter()
+
+    def send_frame():
+        """Send a frame with hold state applied at 120Hz."""
+        nonlocal last_frame
+        current_time = time.perf_counter()
+        if (current_time - last_frame) >= frame_time:
+            packet = nx.create_input_packet()
+            packet = nx.apply_hold_state(cid, packet)
+            nx.set_controller_input(cid, packet)
+            last_frame = current_time
+            return True
+        return False
+
+    def run_manual_command(line):
+        """Process manual mode command."""
+        nonlocal mode, should_quit, ran_init
 
         line = line.strip()
         if not line or line.startswith("#"):
@@ -181,23 +233,22 @@ def main():
             print(f"[*] Changing mode → {new_mode}")
             mode = new_mode
             ran_init = False
-            in_loop_mode = (mode in ("a", "b"))
             return
 
         elif cmd == "hold":
-            if len(parts) < 2 or not parts[1].strip():
-                print("[!] Usage: hold <button1> [button2 ...]")
+            if len(parts) < 2:
+                print("[!] Usage: hold <button>")
                 return
-            buttons = parts[1].split()
-            nx.hold_buttons(cid, buttons)
-            print(f"[*] Holding: {buttons}")
+            button = parts[1].strip()
+            nx.hold_buttons(cid, [button])
+            print(f"[*] Holding: {button}")
             return
 
         elif cmd == "release":
             if len(parts) >= 2:
-                buttons = parts[1].split()
-                nx.release_buttons(cid, buttons)
-                print(f"[*] Released: {buttons}")
+                button = parts[1].strip()
+                nx.release_buttons(cid, [button])
+                print(f"[*] Released: {button}")
             else:
                 nx.release_buttons(cid)
                 print(f"[*] Released all buttons")
@@ -205,36 +256,27 @@ def main():
 
         elif cmd == "hold_stick":
             if len(parts) < 2:
-                print("[!] Usage: hold_stick <stick> <x> <y> [pressed]")
+                print("[!] Usage: hold_stick <stick> <x> <y>")
                 return
             stick_parts = parts[1].split()
             if len(stick_parts) < 3:
-                print("[!] Usage: hold_stick <stick> <x> <y> [pressed]")
+                print("[!] Usage: hold_stick <stick> <x> <y>")
                 return
             stick = stick_parts[0]
             x = int(stick_parts[1])
             y = int(stick_parts[2])
-            pressed = bool(stick_parts[3].lower() == "true") if len(stick_parts) > 3 else False
-            nx.hold_stick(cid, stick, x, y, pressed)
-            print(f"[*] Holding stick {stick} at ({x}, {y}), pressed={pressed}")
+            nx.hold_stick(cid, stick, x, y)
+            print(f"[*] Holding stick {stick} at ({x}, {y})")
             return
 
         elif cmd == "release_stick":
             if len(parts) >= 2:
-                stick = parts[1]
+                stick = parts[1].strip()
                 nx.release_stick(cid, stick)
                 print(f"[*] Released stick: {stick}")
             else:
                 nx.release_stick(cid)
                 print(f"[*] Released all sticks")
-            return
-
-        elif cmd == "send":
-            if len(parts) < 2 or not parts[1].strip():
-                print("[!] Usage: send <macro>")
-                return
-            nx.macro(cid, parts[1].strip())
-            print(f"[*] Sent macro: {parts[1].strip()}")
             return
 
         elif cmd == "status":
@@ -247,9 +289,9 @@ def main():
             return
 
         else:
-            print("[!] Invalid command. Use: mode, hold, release, hold_stick, release_stick, send, status, or quit.")
+            print("[!] Invalid command. Use: mode, hold, release, hold_stick, release_stick, status, or quit.")
 
-    def poll_inputs(timeout=0.05):
+    def poll_inputs(timeout=0.001):
         """Check stdin and FIFO for commands."""
         nonlocal stdin_buf, fifo_buf
         rlist = []
@@ -263,7 +305,7 @@ def main():
                     stdin_buf += chunk
                     while "\n" in stdin_buf:
                         one, stdin_buf = stdin_buf.split("\n", 1)
-                        run_line(one)
+                        run_manual_command(one)
             else:
                 try:
                     chunk = os.read(fifo_rfd, 4096).decode("utf-8", errors="ignore")
@@ -276,34 +318,46 @@ def main():
                     fifo_buf += chunk
                     while "\n" in fifo_buf:
                         one, fifo_buf = fifo_buf.split("\n", 1)
-                        run_line(one)
+                        run_manual_command(one)
 
-    def send_frame():
-        """Send a frame with hold state applied."""
-        packet = nx.create_input_packet()
-        packet = nx.apply_hold_state(cid, packet)
-        nx.set_controller_input(cid, packet)
+    def execute_sequence(commands, tag="seq"):
+        """Execute a sequence of commands from config file."""
+        nonlocal mode, should_quit
+        
+        for line in commands:
+            # Check for mode changes or quit
+            if mode == "manual" or should_quit:
+                print(f"[!] Mode changed to manual or quit requested — stopping {tag}")
+                return False
+            
+            # Poll for inputs
+            poll_inputs(0.0)
+            
+            # Execute command
+            action, sleep_time = exec_config_command(nx, cid, line, tag=tag)
+            
+            # Handle sleep while continuously sending frames
+            if action == 'sleep' and sleep_time:
+                end_time = time.perf_counter() + sleep_time
+                while time.perf_counter() < end_time:
+                    if mode == "manual" or should_quit:
+                        return False
+                    send_frame()
+                    poll_inputs(0.001)
+                    time.sleep(0.001)  # Small sleep to prevent tight loop
+        
+        return True
 
     try:
-        frame_time = 1.0 / FRAME_RATE
-        last_frame = time.perf_counter()
-        
         while not should_quit:
-            poll_inputs(0.01)
+            # Always send frames at 120Hz
+            send_frame()
             
-            current_time = time.perf_counter()
-            
-            # Send frames continuously when in loop modes
-            if in_loop_mode and (current_time - last_frame) >= frame_time:
-                send_frame()
-                last_frame = current_time
+            # Poll for commands
+            poll_inputs(0.001)
 
             if mode == "manual":
-                # Still send frames in manual mode to maintain connection
-                if (current_time - last_frame) >= frame_time:
-                    send_frame()
-                    last_frame = current_time
-                time.sleep(0.01)
+                time.sleep(0.001)
                 continue
 
             # Refresh command files
@@ -312,69 +366,38 @@ def main():
 
             # --- Mode C: init only ---
             if mode == "c":
-                in_loop_mode = False
                 print("[*] Running init sequence (mode c)…")
-                for cmd in init_cmds:
-                    if mode != "c" or should_quit:
-                        print("[!] Mode changed during init — stopping immediately.")
-                        break
-                    exec_command(nx, cid, cmd, tag="init")
-                    poll_inputs(0.0)
-                print("[*] Init complete. Returning to manual mode.")
+                if execute_sequence(init_cmds, tag="init"):
+                    print("[*] Init complete. Returning to manual mode.")
                 mode = "manual"
                 continue
 
             # --- Mode A: init + loop ---
             if mode == "a" and not ran_init:
-                in_loop_mode = True
                 print("[*] Running init sequence…")
-                for cmd in init_cmds:
-                    if mode != "a" or should_quit:
-                        print("[!] Mode changed during init — stopping immediately.")
-                        break
-                    exec_command(nx, cid, cmd, tag="init")
-                    poll_inputs(0.0)
-                ran_init = True
-                if mode != "a" or should_quit:
+                if execute_sequence(init_cmds, tag="init"):
+                    ran_init = True
+                else:
                     continue
 
             # --- Mode B: just loop ---
-            if mode == "b":
-                in_loop_mode = True
+            # (mode b doesn't run init, just loops)
 
             # --- Loop section (A and B) ---
-            if loop_cmds and (mode == "a" or mode == "b"):
+            if mode in ("a", "b") and loop_cmds:
                 print("[*] Starting loop pass…")
-                for cmd in loop_cmds:
+                if not execute_sequence(loop_cmds, tag="loop"):
+                    continue
+                
+                # Sleep between loop passes while sending frames
+                print(f"[*] Sleeping {SLEEP_BETWEEN_LOOPS}s between loops…")
+                end_time = time.perf_counter() + SLEEP_BETWEEN_LOOPS
+                while time.perf_counter() < end_time:
                     if mode == "manual" or should_quit:
-                        print("[!] Mode switched to manual — stopping loop immediately.")
-                        in_loop_mode = False
                         break
-                    exec_command(nx, cid, cmd, tag="loop")
-                    poll_inputs(0.0)
-                    
-                    # Send frames during loop execution
-                    current_time = time.perf_counter()
-                    if (current_time - last_frame) >= frame_time:
-                        send_frame()
-                        last_frame = current_time
-
-                # Sleep between passes
-                slept = 0.0
-                while slept < SLEEP_BETWEEN_LOOPS:
-                    if mode == "manual" or should_quit:
-                        in_loop_mode = False
-                        break
-                    poll_inputs(0.01)
-                    
-                    # Send frames during sleep
-                    current_time = time.perf_counter()
-                    if (current_time - last_frame) >= frame_time:
-                        send_frame()
-                        last_frame = current_time
-                    
-                    time.sleep(0.01)
-                    slept += 0.01
+                    send_frame()
+                    poll_inputs(0.001)
+                    time.sleep(0.001)
 
     except KeyboardInterrupt:
         print("\n[!] Stopped by user")
