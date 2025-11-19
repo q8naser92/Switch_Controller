@@ -835,11 +835,6 @@ async function sendControllerCommand(command) {
 function handleButtonPressStart(button) {
   const btnName = button.dataset.btn;
   
-  // Don't interfere with alt+click hold
-  if (holdIntervals.has(btnName)) {
-    return;
-  }
-  
   // Visual feedback
   button.classList.add('pressed');
   
@@ -862,11 +857,6 @@ function handleButtonPressStart(button) {
 // Handle button press end (mouseup/mouseleave)
 function handleButtonPressEnd(button) {
   const btnName = button.dataset.btn;
-  
-  // Don't interfere with alt+click hold
-  if (holdIntervals.has(btnName)) {
-    return;
-  }
   
   // Remove visual feedback
   button.classList.remove('pressed');
@@ -935,8 +925,15 @@ document.querySelectorAll('.ctrl-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     e.preventDefault();
     
+    // If already holding (from Alt+click), any click releases it
+    const btnName = btn.dataset.btn;
+    if (holdIntervals.has(btnName)) {
+      handleButtonHold(btn);
+      return;
+    }
+    
     if (e.altKey) {
-      // Alt+click = hold/toggle auto-repeat
+      // Alt+click = hold until clicked again
       handleButtonHold(btn);
     }
     // Note: Normal clicks are handled by mousedown/mouseup for press-and-hold behavior
@@ -945,20 +942,28 @@ document.querySelectorAll('.ctrl-btn').forEach(btn => {
   btn.addEventListener('mousedown', (e) => {
     e.preventDefault();
     
-    // Only handle normal (non-alt) mouse down
-    if (!e.altKey) {
+    // Only handle normal (non-alt) mouse down if not already in hold state
+    const btnName = btn.dataset.btn;
+    if (!e.altKey && !holdIntervals.has(btnName)) {
       handleButtonPressStart(btn);
     }
   });
   
   btn.addEventListener('mouseup', (e) => {
     e.preventDefault();
-    handleButtonPressEnd(btn);
+    // Only handle mouse up if not in hold state
+    const btnName = btn.dataset.btn;
+    if (!holdIntervals.has(btnName)) {
+      handleButtonPressEnd(btn);
+    }
   });
   
   btn.addEventListener('mouseleave', (e) => {
-    // Stop sending if mouse leaves while holding
-    handleButtonPressEnd(btn);
+    // Stop sending if mouse leaves while holding (but not if in Alt+click hold state)
+    const btnName = btn.dataset.btn;
+    if (!holdIntervals.has(btnName)) {
+      handleButtonPressEnd(btn);
+    }
   });
   
   // Prevent default context menu on right-click
