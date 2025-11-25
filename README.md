@@ -58,6 +58,7 @@ Run:
 
 ```bash
 sudo apt-mark hold raspberrypi-kernel raspberrypi-kernel-headers bluez pi-bluetooth
+```
 
 2️⃣ Install Required Packages
 
