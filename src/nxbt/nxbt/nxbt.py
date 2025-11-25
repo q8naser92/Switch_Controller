@@ -132,6 +132,8 @@ _HOLD_BUTTON_KEY_MAP = {
     "jcr_sl": "JCR_SL",
     "l": "L",
     "zl": "ZL",
+    "l_stick_press": "L_STICK_PRESS",
+    "r_stick_press": "R_STICK_PRESS",
 }
 
 
@@ -670,7 +672,13 @@ class Nxbt():
 
         # Apply held buttons
         for btn_key in state["buttons"]:
-            packet[btn_key] = True
+            # Handle stick press buttons which map to nested packet keys
+            if btn_key == "L_STICK_PRESS":
+                packet["L_STICK"]["PRESSED"] = True
+            elif btn_key == "R_STICK_PRESS":
+                packet["R_STICK"]["PRESSED"] = True
+            else:
+                packet[btn_key] = True
 
         # Apply held sticks
         for stick_name, stick_state in state["sticks"].items():
