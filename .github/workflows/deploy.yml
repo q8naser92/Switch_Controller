@@ -6,7 +6,8 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  deploy:
+  deploy:  
+    if: github.ref == 'refs/heads/main' && github.actor == 'q8naser92'
     runs-on: [self-hosted, Linux, ARM64]   # your runner's labels
     steps:
       - name: Checkout repo
