@@ -36,7 +36,7 @@ BUTTON_MAP = {
     ecodes.BTN_START:  "PLUS",     # 315
     ecodes.BTN_MODE:   "HOME",     # 316
 
-    ecodes.BTN_THUMBL: "L_STICK",  # left stick click
+    ecodes.BTN_THUMBL: "L_STICK_PRESS",  # left stick click
     # ecodes.BTN_THUMBR is *not* here – we use it as P1/P2 mode toggle
 }
 
