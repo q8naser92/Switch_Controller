@@ -32,8 +32,8 @@ jobs:
           sudo -n chown -R root:root /opt/nxbt
 
       # Restart service (match EXACT path & args from sudoers)
-      - name: Restart nxbt-gui service
-        run: sudo -n systemctl restart nxbt-gui.service
+ #     - name: Restart nxbt-gui service
+ #       run: sudo -n systemctl restart nxbt-gui.service
 
       # Health check with a few retries
       - name: Health check
