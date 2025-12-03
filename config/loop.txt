@@ -1,6 +1,6 @@
 0.2s
 hold_stick L_STICK 0 100
-3.1s
+3.0s
 release_stick L_STICK
 0.3s
 hold_stick L_STICK 0 -100
