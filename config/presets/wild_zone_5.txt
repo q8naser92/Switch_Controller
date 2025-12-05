@@ -2,14 +2,15 @@ hold PLUS
 0.3s
 release PLUS
 0.3s
-hold_stick L_STICK 100 100
-0.4s
+hold_stick L_STICK 25 50
+0.2s
 release_stick L_STICK
-0.3s
+0.5s
 hold A
-0.3s
+0.5s
 release A
-0.3s
+0.5s
 hold A
-0.3s
+0.5s
 release A
+8.9s
