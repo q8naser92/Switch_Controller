@@ -1,6 +1,3 @@
-hold PLUS
+hold A
 0.3s
-release PLUS
-0.3s
-release_stick L_STICK
-release_stick L_STICK
+release A
