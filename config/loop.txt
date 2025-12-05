@@ -1,2 +1,4 @@
 hold PLUS
 0.3s
+release PLUS
+0.3s
