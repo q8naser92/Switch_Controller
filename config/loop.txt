@@ -3,3 +3,4 @@ hold PLUS
 release PLUS
 0.3s
 release_stick L_STICK
+release_stick L_STICK
