@@ -13,4 +13,8 @@ release A
 hold A
 0.5s
 release A
-9.9s
+0.5s
+hold A
+0.5s
+release A
+8.9s
