@@ -37,7 +37,7 @@ BUTTON_MAP = {
     ecodes.BTN_MODE:   "HOME",     # 316
 
     ecodes.BTN_THUMBL: "L_STICK_PRESS",  # left stick click
-    # ecodes.BTN_THUMBR is *not* here – we use it as P1/P2 mode toggle
+    ecodes.BTN_THUMBR: "R_STICK_PRESS", #S is *not* here – we use it as P1/P2 mode toggle
 }
 
 
@@ -189,6 +189,13 @@ def main():
         zr_pressed = False
 
         button_state = {}
+        
+        # PLUS+MINUS combo state
+        minus_pressed = False
+        plus_pressed = False
+        combo_start_time = None
+        combo_triggered = False
+        
 
         try:
             for event in dev.read_loop():
@@ -198,33 +205,109 @@ def main():
                 code = event.code
                 value = event.value
 
+   #             # ---------- Digital buttons ----------
+   #             if event.type == ecodes.EV_KEY:
+   #                 # Use Right Stick Button (BTN_THUMBR) as P1/P2 mode toggle
+   #                 if code == ecodes.BTN_THUMBR:
+   #                     if value != 0:  # only on press, ignore release
+   #                         # Toggle mode
+   #                         new_mode = "manual" if current_mode == "b" else "b"
+   #                         print(
+   #                             f"[TOGGLE] RS-click detected -> switching mode "
+   #                             f"from '{current_mode}' to '{new_mode}'",
+   #                             flush=True,
+   #                         )
+   #                         current_mode = new_mode
+   #                         send_to_nxbt(f"mode {current_mode}")
+   #                     continue  # don't treat it as a normal button
+
+   #                 # Normal buttons
+   #                 if code in BUTTON_MAP:
+   #                     btn_name = BUTTON_MAP[code]
+   #                     pressed = value != 0
+
+   #                     prev = button_state.get(btn_name, False)
+   #                     if pressed == prev:
+                            # no state change
+   #                         continue
+   #                     button_state[btn_name] = pressed
+
+   #                     action = "hold" if pressed else "release"
+   #                     cmd = f"{action} {btn_name}"
+   #                     print(
+   #                         f"[INPUT] Button {'pressed' if pressed else 'released'}: "
+   #                         f"{btn_name} (code={code}) -> {cmd}",
+   #                         flush=True,
+   #                     )
+   #                     send_to_nxbt(cmd)
+   #                 else:
+   #                     if value != 0:
+   #                         print(f"[DEBUG] Unknown button code={code} value={value}", flush=True)
+
+
+
                 # ---------- Digital buttons ----------
                 if event.type == ecodes.EV_KEY:
-                    # Use Right Stick Button (BTN_THUMBR) as P1/P2 mode toggle
-                    if code == ecodes.BTN_THUMBR:
-                        if value != 0:  # only on press, ignore release
-                            # Toggle mode
-                            new_mode = "manual" if current_mode == "b" else "b"
-                            print(
-                                f"[TOGGLE] RS-click detected -> switching mode "
-                                f"from '{current_mode}' to '{new_mode}'",
-                                flush=True,
-                            )
-                            current_mode = new_mode
-                            send_to_nxbt(f"mode {current_mode}")
-                        continue  # don't treat it as a normal button
+                    code = event.code
+                    value = event.value
 
-                    # Normal buttons
+                    # --- PLUS + MINUS combo (>=0.3s) toggles mode ---
+                    if code in (ecodes.BTN_SELECT, ecodes.BTN_START):
+                        now = time.monotonic()
+                        pressed = value != 0
+                        # combo state *before* we change any flags
+                        combo_active_before = minus_pressed and plus_pressed
+
+                        if not pressed:
+                            # One of them is being released; if they were both held long enough, toggle
+                            if (
+                                combo_active_before
+                                and not combo_triggered
+                                and combo_start_time is not None
+                                and (now - combo_start_time) >= 0.3
+                            ):
+                                new_mode = "manual" if current_mode == "b" else "b"
+                                print(
+                                    f"[TOGGLE] PLUS+MINUS held -> switching mode "
+                                    f"from '{current_mode}' to '{new_mode}'",
+                                    flush=True,
+                                )
+                                current_mode = new_mode
+                                send_to_nxbt(f"mode {current_mode}")
+                                combo_triggered = True
+
+                            # Update which button was released
+                            if code == ecodes.BTN_SELECT:
+                                minus_pressed = False
+                            else:  # BTN_START
+                                plus_pressed = False
+
+                            # If combo is fully released, reset timer/flag
+                            if not minus_pressed and not plus_pressed:
+                                combo_start_time = None
+                                combo_triggered = False
+
+                        else:
+                            # This is a press
+                            if code == ecodes.BTN_SELECT:
+                                minus_pressed = True
+                            else:  # BTN_START
+                                plus_pressed = True
+
+                            # When both are down, start timing
+                            if minus_pressed and plus_pressed:
+                                combo_start_time = now
+                                combo_triggered = False
+
+                    # --- Normal button handling (including PLUS/MINUS individually) ---
                     if code in BUTTON_MAP:
                         btn_name = BUTTON_MAP[code]
                         pressed = value != 0
-
                         prev = button_state.get(btn_name, False)
                         if pressed == prev:
                             # no state change
                             continue
                         button_state[btn_name] = pressed
-
                         action = "hold" if pressed else "release"
                         cmd = f"{action} {btn_name}"
                         print(
@@ -236,6 +319,7 @@ def main():
                     else:
                         if value != 0:
                             print(f"[DEBUG] Unknown button code={code} value={value}", flush=True)
+
 
                 # ---------- Analog (sticks, dpad, triggers) ----------
                 elif event.type == ecodes.EV_ABS:
